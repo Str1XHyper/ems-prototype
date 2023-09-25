@@ -1,0 +1,131 @@
+﻿@page "/editcolumn"
+@using Interfaces
+@using Models.Enums
+@using Models.Extensions
+@using Models.Structs
+@inject IJSRuntime JSRuntime
+@inject IEntityService EntityService
+<h1>Edit column</h1>
+<div class="flex flex-wrap flex-column card ">
+    <table>
+        <tr>
+            <th>
+                @nameof(ColDescriptor.ColumnName)
+            </th>
+            <th>
+                @nameof(ColDescriptor.ColumnDisplayName)
+            </th>
+            <th>
+
+                @nameof(ColDescriptor.ColumnValueType)
+            </th>
+            <th>
+
+                @nameof(ColDescriptor.ColumnEnabled)
+            </th>
+            <th>
+                Actions
+            </th>
+
+        </tr>
+        @foreach (var descriptor in _colDescriptors)
+        {
+            <tr>
+                <td>
+                    @descriptor.ColumnName
+                </td>
+                <td>
+                    @descriptor.ColumnDisplayName
+                </td>
+                <td>
+                    @descriptor.ColumnValueType
+                </td>
+                <td>
+                    @descriptor.ColumnEnabled
+                </td>
+                <td>
+                    <button @onclick="()=> { ShowDialog(descriptor);}" class="btn btn-outline-primary"><i class="oi oi-pencil"></i></button>
+                    <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId);}" class="btn btn-outline-danger"><i class="oi oi-trash"></i></button>
+                </td>
+            </tr>
+        }
+    </table>
+</div>
+
+<dialog id="edit-column-dialog">
+    <EditForm OnValidSubmit="EditColumnFunc" Model="SelectedColDescriptor">
+        <DataAnnotationsValidator/>
+        <div class="form-group">
+            <label>Name</label>
+            <InputText @bind-Value="SelectedColDescriptor.ColumnName" class="form-control" placeholder="Column name"/>
+            <ValidationMessage For="@(() => SelectedColDescriptor.ColumnName)"/>
+        </div>
+        <div class="form-group">
+            <label>Type</label>
+            <InputSelect @bind-Value="SelectedColDescriptor.ColumnValueType">
+                @foreach (var item in Enum.GetValues(typeof(ValueTypes)))
+                {
+                    <option value="@item">@item.ToString()</option>
+                }
+            </InputSelect>
+            <ValidationMessage For="@(() => SelectedColDescriptor.ColumnValueType)"/>
+        </div>
+        <div class="form-group">
+            <label>Enabled</label>
+            <InputCheckbox @bind-Value="SelectedColDescriptor.ColumnEnabled"/>  
+            <ValidationMessage For="@(() => SelectedColDescriptor.ColumnValueType)"/>
+        </div>
+    
+        <button @onclick="() => { success = false; }" value="cancel" formmethod="dialog" class="btn btn-danger">Cancel</button>
+        <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Update</button>
+    
+    </EditForm>
+</dialog>
+
+<script >
+    function ShowEditDialog() {
+        let dialog = document.getElementById('edit-column-dialog');
+        dialog.showModal();
+    }
+        function HideEditDialog() {
+            let dialog = document.getElementById('edit-column-dialog');
+            dialog.close();
+        }
+</script>
+
+@code {
+    IEnumerable<ColDescriptor> _colDescriptors;
+
+    ColDescriptor SelectedColDescriptor = new();
+    
+    public bool success { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+
+    private void RemoveColumnFunc(Guid id)
+    {
+        EntityService.RemoveColumn(id);
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+
+    private void ShowDialog(ColDescriptor colDescriptor)
+    {
+        SelectedColDescriptor.CopyFrom(colDescriptor);
+        JSRuntime.InvokeVoidAsync("ShowEditDialog");
+    }
+
+    private void EditColumnFunc()
+    {
+        JSRuntime.InvokeVoidAsync("HideEditDialog");
+        if (success)
+        {
+            EntityService.UpdateColumn(SelectedColDescriptor);
+        }
+
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+
+}

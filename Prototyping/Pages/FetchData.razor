@@ -1,0 +1,85 @@
+﻿@page "/fetchdata"
+@using Interfaces
+@using System.Diagnostics
+@inject IEntityService EntityService
+
+<PageTitle>DB</PageTitle>
+
+<h1>Read</h1>
+<div class="flex flex-wrap flex-column card ">
+    @if (test.Any())
+    {
+    <table>
+        @foreach (var col in test?.FirstOrDefault()?.Keys)
+        {
+            <th>@col</th>
+        }
+        @foreach (var row in test.Take(5))
+        {
+            <tr>
+                @foreach (var item in row)
+                {
+                    <td>@item.Value</td>
+                }
+            </tr>
+        }
+    </table>
+        
+    }
+    @* @foreach (var row in test.Take(5)) *@
+    @* { *@
+    @*     <div style="display: flex; flex-direction:row" class="gap-2"> *@
+    @*         @foreach (var item in row) *@
+    @*         { *@
+    @*             <div style="display: flex; flex-direction:column"> *@
+    @*                 @if (test.IndexOf(row) == 0) *@
+    @*                 { *@
+    @*                     <div>@item.Key</div> *@
+    @*                 } *@
+    @*                 <div>@item.Value</div> *@
+    @*             </div> *@
+    @*         } *@
+    @*     </div> *@
+    @* } *@
+
+    <span>Records: @test.Count</span>
+    <span>Time elapsed: @stopwatch.Elapsed</span>
+    <span>Current average: @averageTimeSpan</span>
+</div>
+
+<button class="btn btn-primary" @onclick="Run">Run</button>
+<br>
+<button class="btn btn-primary" @onclick="RunWithDate">Run with date</button>
+<InputDate @bind-Value="EntityService.SelectedDateTime" Type="InputDateType.DateTimeLocal" TValue="DateTime"></InputDate>
+
+
+
+<style>
+</style>
+
+@code {
+    List<Dictionary<string, object>> test = new();
+    Stopwatch stopwatch = new();
+    List<TimeSpan> _timeSpans = new();
+
+    double averageTimeSpan => _timeSpans.Any() ? _timeSpans.Average(x => x.TotalMilliseconds) : 0;
+
+    private void Run()
+    {
+        stopwatch.Reset();
+        stopwatch.Start();
+        test = EntityService.GetAllEntities();
+        stopwatch.Stop();
+        _timeSpans.Add(stopwatch.Elapsed);
+    }
+
+    private void RunWithDate()
+    {
+        stopwatch.Reset();
+        stopwatch.Start();
+        test = EntityService.GetAllEntitiesByDate(DateTime.Now);
+        stopwatch.Stop();
+        _timeSpans.Add(stopwatch.Elapsed);
+    }
+
+}
