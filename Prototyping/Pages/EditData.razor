@@ -1,0 +1,146 @@
+﻿@page "/editdata"
+@using Interfaces
+@using Models.Enums
+@using Models.Structs
+@using System.Dynamic
+@inject IEntityService EntityService
+@inject IJSRuntime JSRuntime
+<h1>Edit data</h1>
+<div class="flex flex-wrap flex-column card ">
+    @if (Data.Any())
+    {
+        <table>
+            <tr>
+                @foreach (var col in Data.First().Keys)
+                {
+                    <th>@col</th>
+                }
+                <th>Actions</th>
+            </tr>
+            @foreach (var row in Data.Take(5))
+            {
+                <tr>
+                    @foreach (var item in row)
+                    {
+                        <td>@item.Value</td>
+                    }
+                    <td>
+                        <button @onclick="()=> { ShowDialog(row);}" class="btn btn-outline-primary"><i class="fas fa-pencil"></i></button>
+                        @* <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId);}" class="btn btn-outline-danger"><i class="fas fa-trash"></i></button> *@
+                    </td>
+                </tr>
+            }
+        </table>
+            
+    }
+</div>
+<dialog id="edit-row-dialog">
+    <EditForm OnValidSubmit="EditRow" Model="SelectedRow">
+        <DataAnnotationsValidator/>
+        @foreach (var kvp in SelectedRow)
+        {
+            <div class="form-group">
+                <label>@kvp.Key</label>
+                @{
+                    switch (kvp.Type)
+                    {
+                        case ValueTypes.NUMBER:
+                            <InputNumber @bind-Value="kvp.ValueNumber"/>
+                            break;
+                        case ValueTypes.STRING:
+                            <InputText @bind-Value="kvp.ValueString"/>
+                            break;
+                        case ValueTypes.DATE:
+                            break;
+                        case ValueTypes.BOOLEAN:
+                            <InputCheckbox @bind-Value="kvp.ValueBool"></InputCheckbox>
+                            break;
+                        case ValueTypes.GUID:
+                            <InputText disabled @bind-Value="@kvp.ValueString" />
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
+                    }
+                }
+                <ValidationMessage For="@(() => kvp.Value)"/>
+            </div>
+        }
+    
+    <button @onclick="() => { success = false; }" value="cancel" formmethod="dialog" class="btn btn-danger">Cancel</button>
+    <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Update</button>
+    
+    </EditForm>
+</dialog>
+
+@code {
+    bool success = false;
+    
+    List<Dictionary<string, object>> Data = new();
+    List<ValuePair> SelectedRow = new();
+    IEnumerable<ColDescriptor> _colDescriptors;
+    
+    private class ValuePair
+    {
+        public string Key { get; set; }
+        public object Value { get; set; }
+        public ValueTypes Type { get; set; }
+        
+        public string? ValueString
+        {
+            get => Value as string;
+            set => Value = value;
+        }
+
+        public bool ValueBool
+        {
+            get => (Value as bool?) ?? false;
+            set => Value = value;
+        }
+
+        public int? ValueNumber
+        {
+            get => Value as int?;
+            set => Value = value;
+        }
+    }
+    
+    protected override void OnInitialized()
+    {
+        Run();
+    }
+    
+    private void ShowDialog(Dictionary<string, object> row)
+    {
+        SelectedRow.Clear();
+        foreach (var kvp in row)
+        {                    
+            var col = _colDescriptors.FirstOrDefault(x => x.ColumnDisplayName == kvp.Key);
+            if (col is null) 
+                return;
+            SelectedRow.Add(new ValuePair()
+            {
+                Key = kvp.Key,
+                Value = kvp.Value,
+                Type = col.ColumnValueType
+            });
+        }
+        // SelectedRow = SelectedRow.Union(row).ToDictionary(x => x.Key, x => x.Value);
+        JSRuntime.InvokeVoidAsync("ShowDialog", "edit-row-dialog");
+    }    
+    private void EditRow()
+    {
+        JSRuntime.InvokeVoidAsync("HideDialog", "edit-row-dialog");
+        if (success)
+        {
+            // EntityService.UpdateRow(row);
+        }
+
+        Run();
+    }
+
+    private void Run()
+    {
+        Data = EntityService.GetAllEntities();
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+}

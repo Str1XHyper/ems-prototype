@@ -11,26 +11,39 @@
     <nav class="flex-column">
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="oi oi-home" aria-hidden="true"></span> Home
+                <span class="fas fa-home" aria-hidden="true"></span> Home
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="editdata">
+                <span class="fas fa-table-cells" aria-hidden="true"></span> Edit data
             </NavLink>
         </div>
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="fetchdata">
-                <span class="oi oi-list-rich" aria-hidden="true"></span> Read data
+                <span class="fas fa-list" aria-hidden="true"></span> Read data
             </NavLink>
         </div>
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="addcolumn">
-                <span class="oi oi-plus" aria-hidden="true"></span> Add Column
+                <span class="fas fa-plus" aria-hidden="true"></span> Add Column
             </NavLink>
         </div>
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="editcolumn">
-                <span class="oi oi-pencil" aria-hidden="true"></span> Edit Columns
+                <span class="fas fa-pencil" aria-hidden="true"></span> Edit Columns
             </NavLink>
         </div>
     </nav>
 </div>
+
+<style>
+    .nav-link{
+        display: flex;
+        flex-direction: row;
+        gap: 0.5rem;
+    }
+</style>
 
 @code {
     private bool collapseNavMenu = true;

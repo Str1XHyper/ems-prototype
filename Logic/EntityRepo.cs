@@ -88,7 +88,7 @@ public class EntityRepo:IEntityRepo
 
     public List<Dictionary<string, object>> GetAllEntities()
     {
-        var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName.Split('_')[1]}]"));
+        var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}] as '{x.ColumnDisplayName}'"));
         var query = $"SELECT {selectedColumns} FROM [dbo].[Entity]";
         var result =_sqlConnector.GetList(query);
         return result;
@@ -98,7 +98,7 @@ public class EntityRepo:IEntityRepo
     {
         var parameters = new Dictionary<string, object>();
         parameters.Add("dateTime",dateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
-        var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName.Split('_')[1]}]"));
+        var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName}] as '{x.ColumnDisplayName}'"));
         var query = $"SELECT {selectedColumns} FROM [dbo].[Entity]For System_Time As Of @dateTime";
         var result =_sqlConnector.GetList(query,parameters);
         return result;
@@ -285,7 +285,16 @@ public class EntityRepo:IEntityRepo
                     ValueTypes.DATE => "datetime2(7)",
                     ValueTypes.BOOLEAN => "bit",
                 };
-                var internalColumnName = $"entity_{selectedColDescriptor.ColumnDisplayName}_1";
+                var counter = 1;
+                if (spec.Any(x => x.ColumnName.StartsWith($"entity_{selectedColDescriptor.ColumnDisplayName}")))
+                {
+                    var highest = spec
+                        .Where(x => x.ColumnName.StartsWith($"entity_{selectedColDescriptor.ColumnDisplayName}"))
+                        .OrderByDescending(x => x.ColumnName).Select(x => x.ColumnName).First();
+                    Int32.TryParse(highest.Split('_')[2], out counter);
+                    counter++;
+                }
+                var internalColumnName = $"entity_{selectedColDescriptor.ColumnDisplayName}_{counter}";
                 command.CommandText = "UPDATE [dbo].[EntitySpec] SET ColumnEnabled = 0 WHERE Id = @id";
                 command.Parameters.AddWithValue("id", selectedColDescriptor.DescriptorId);
                 command.ExecuteNonQuery();

@@ -75,3 +75,23 @@ a, .btn-link {
     width: auto;
     min-width: 300px;
 }
+
+.form-group{
+    display: flex;
+    flex-direction: row;
+    gap:1rem;
+}
+
+.form-grid{
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-auto-flow: row;
+}
+
+.col-1{
+    grid-column: 1;
+}
+
+.col-2{
+    grid-column: 2;
+}

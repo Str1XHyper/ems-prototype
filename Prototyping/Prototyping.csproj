@@ -10,4 +10,8 @@
     <ProjectReference Include="..\DependencyInjection\DependencyInjection.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="wwwroot\css\fontawesome\" />
+  </ItemGroup>
+
 </Project>
