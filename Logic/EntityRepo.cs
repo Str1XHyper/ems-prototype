@@ -86,22 +86,101 @@ public class EntityRepo:IEntityRepo
         return colDescriptors;
     }
 
-    public List<Dictionary<string, object>> GetAllEntities()
+    public int GetTotalEntityCount()
     {
-        var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}] as '{x.ColumnDisplayName}'"));
-        var query = $"SELECT {selectedColumns} FROM [dbo].[Entity]";
+        var query = "SELECT Count([entity_Id_1]) FROM [dbo].[Entity]";
+        
+        using var connection = _sqlConnector.SqlConnection;
+        connection.Open();
+        
+        using var command = new SqlCommand(query, connection);
+        using var reader = command.ExecuteReader();
+
+        var count = -1;
+        
+        while (reader.Read())
+        {
+            count = reader.GetValue(0) as int? ?? -1;
+        }
+
+        return count;
+    }
+
+    public List<Dictionary<ColDescriptor, object>> GetRangeOfEntitiesBySelectedDate(int requestStartIndex, int requestCount)
+    {
+        try
+        {
+
+            var parameters = new Dictionary<string, object>();
+            parameters.Add("dateTime", SelectedDateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
+            var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName}]"));
+            var query = $"WITH Records as (SELECT {selectedColumns}, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity] For System_Time As Of @dateTime) Select * From Records WHERE RowNumber between {requestStartIndex} and {requestCount}";
+            var result = _sqlConnector.GetList(query, parameters).ToList();
+
+            var rows = result.Select(resultRow => resultRow.SkipLast(1).ToDictionary(col => _entityTableSpecAsOfSelected.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
+
+            return rows;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+            return new List<Dictionary<ColDescriptor, object>>();
+        }
+    }
+
+    public int GetEntityCountByDate()
+    {
+        var query = "SELECT Count([entity_Id_1]) FROM [dbo].[Entity] For System_Time As Of @dateTime";
+        
+        using var connection = _sqlConnector.SqlConnection;
+        connection.Open();
+        
+        using var command = new SqlCommand(query, connection);
+        command.Parameters.AddWithValue("dateTime", SelectedDateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
+        using var reader = command.ExecuteReader();
+        var count = -1;
+        
+        while (reader.Read())
+        {
+            count = reader.GetValue(0) as int? ?? -1;
+        }
+
+        return count;
+    }
+
+    public List<Dictionary<ColDescriptor, object>> GetRangeOfEntities(int start, int end)
+    {
+        var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}]"));
+        var query = $"WITH Records as (SELECT {selectedColumns}, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity]) Select * From Records WHERE RowNumber between {start} and {end}";
         var result =_sqlConnector.GetList(query);
-        return result;
+
+        var rows = result.Select(resultRow => resultRow.SkipLast(1).ToDictionary(col => _entityTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
+
+        return rows;
+    }
+
+    public List<Dictionary<ColDescriptor, object>> GetAllEntities()
+    {
+        var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}]"));
+        var query = $"WITH Records as (SELECT {selectedColumns}, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity]) Select * From Records WHERE RowNumber between 1 and 1000";
+        var result =_sqlConnector.GetList(query);
+
+        var rows = result.Select(resultRow => resultRow.SkipLast(1).ToDictionary(col => _entityTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
+
+        return rows;
     }
     
-    public List<Dictionary<string, object>> GetAllEntitiesAsOfDateTime(DateTime dateTime)
+    public List<Dictionary<ColDescriptor, object>> GetAllEntitiesAsOfDateTime(DateTime dateTime)
     {
         var parameters = new Dictionary<string, object>();
-        parameters.Add("dateTime",dateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
-        var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName}] as '{x.ColumnDisplayName}'"));
-        var query = $"SELECT {selectedColumns} FROM [dbo].[Entity]For System_Time As Of @dateTime";
+        parameters.Add("dateTime",SelectedDateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
+        var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName}]"));
+        var query = $"SELECT {selectedColumns} FROM [dbo].[Entity] For System_Time As Of @dateTime";
         var result =_sqlConnector.GetList(query,parameters);
-        return result;
+        
+        
+        var rows = result.Select(resultRow => resultRow.ToDictionary(col => _entityTableSpecAsOfSelected.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
+        return rows;
     }
     
     public void AddColumn(string columnName, ValueTypes columnValueType)
@@ -113,8 +192,15 @@ public class EntityRepo:IEntityRepo
             ValueTypes.DATE => "datetime2(7)",
             ValueTypes.BOOLEAN => "bit",
             ValueTypes.GUID => "uniqueidentifier",
+            ValueTypes.EMAIL => "nvarchar(100)",
+            ValueTypes.PHONE => "nvarchar(100)",
+            ValueTypes.URL => "nvarchar(100)",
+            ValueTypes.PASSWORD => "nvarchar(100)",
+            ValueTypes.CURRENCY => "decimal(18,2)",
+            ValueTypes.PERCENTAGE => "decimal(18,2)",
+            ValueTypes.DATETIME => "datetime2(7)",
+            ValueTypes.TIME => "time(7)",
         };
-        var internalColumnName = $"entity_{columnName}_1";
         
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
@@ -129,6 +215,16 @@ public class EntityRepo:IEntityRepo
         // to Command object for a pending local transaction
         command.Connection = connection;
         command.Transaction = transaction;
+        
+        var counter = 1;
+        if (_entityTableSpec.Any(x => x.ColumnName.StartsWith($"entity_{columnName}")))
+        {
+            var highest = _entityTableSpec
+                .Where(x => x.ColumnName.StartsWith($"entity_{columnName}"))
+                .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
+            counter = highest + 1;
+        }
+        var internalColumnName = $"entity_{columnName}_{counter}";
 
         var insertQuery = $"ALTER TABLE [dbo].[Entity] ADD [{internalColumnName}] {datatype}";
         const string specQuery = "INSERT INTO [dbo].[EntitySpec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled) VALUES (@internalColumnName, @columnName, @columnValueType, 1)";
@@ -284,15 +380,24 @@ public class EntityRepo:IEntityRepo
                     ValueTypes.STRING => "nvarchar(100)",
                     ValueTypes.DATE => "datetime2(7)",
                     ValueTypes.BOOLEAN => "bit",
+                    ValueTypes.GUID => "uniqueidentifier",
+                    ValueTypes.EMAIL => "nvarchar(100)",
+                    ValueTypes.PHONE => "nvarchar(100)",
+                    ValueTypes.URL => "nvarchar(100)",
+                    ValueTypes.PASSWORD => "nvarchar(100)",
+                    ValueTypes.CURRENCY => "decimal(18,2)",
+                    ValueTypes.PERCENTAGE => "decimal(18,2)",
+                    ValueTypes.DATETIME => "datetime2(7)",
+                    ValueTypes.TIME => "time(7)",
+                    _ => throw new ArgumentOutOfRangeException()
                 };
                 var counter = 1;
                 if (spec.Any(x => x.ColumnName.StartsWith($"entity_{selectedColDescriptor.ColumnDisplayName}")))
                 {
-                    var highest = spec
+                    var highest = _entityTableSpec
                         .Where(x => x.ColumnName.StartsWith($"entity_{selectedColDescriptor.ColumnDisplayName}"))
-                        .OrderByDescending(x => x.ColumnName).Select(x => x.ColumnName).First();
-                    Int32.TryParse(highest.Split('_')[2], out counter);
-                    counter++;
+                        .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
+                    counter = highest + 1;
                 }
                 var internalColumnName = $"entity_{selectedColDescriptor.ColumnDisplayName}_{counter}";
                 command.CommandText = "UPDATE [dbo].[EntitySpec] SET ColumnEnabled = 0 WHERE Id = @id";
@@ -307,6 +412,47 @@ public class EntityRepo:IEntityRepo
                 
                 command.ExecuteNonQuery();
             }
+            transaction.Commit();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+            transaction.Rollback();
+        }
+        finally
+        {
+            connection.Close();
+            _entityTableSpec = GetEntityTableSpec();
+        }
+    }
+
+    public void UpdateRow(Dictionary<ColDescriptor, object> row)
+    {
+        var setters = row.Keys.Where(x => x.ColumnName != "entity_Id_1").Aggregate("", (current, key) => current + $"[{key.ColumnName}] = @{key.ColumnName.Replace(' ', '_')}, ");
+        setters = setters.TrimEnd(',', ' ');
+        var query = $"Update [dbo].[Entity] SET {setters} WHERE [entity_Id_1] = @entity_Id_1";
+        
+        
+        using var connection = _sqlConnector.SqlConnection;
+        connection.Open();
+        SqlCommand command = connection.CreateCommand();
+        SqlTransaction transaction;
+
+        // Start a local transaction.
+        transaction = connection.BeginTransaction();
+
+        // Must assign both transaction object and connection
+        // to Command object for a pending local transaction
+        command.Connection = connection;
+        command.Transaction = transaction;
+        try
+        {
+            command.CommandText = query;
+            foreach (var kvp in row)
+            {
+                command.Parameters.AddWithValue(kvp.Key.ColumnName.Replace(' ', '_'), kvp.Value);
+            }
+            command.ExecuteNonQuery();
             transaction.Commit();
         }
         catch (Exception ex)

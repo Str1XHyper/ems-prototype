@@ -1,68 +1,77 @@
 ﻿@page "/fetchdata"
 @using Interfaces
 @using System.Diagnostics
+@using Models.Structs
 @inject IEntityService EntityService
 
 <PageTitle>DB</PageTitle>
 
 <h1>Read</h1>
-<div class="flex flex-wrap flex-column card ">
-    @if (test.Any())
-    {
-    <table>
-        @foreach (var col in test?.FirstOrDefault()?.Keys)
-        {
-            <th>@col</th>
-        }
-        @foreach (var row in test.Take(5))
-        {
-            <tr>
-                @foreach (var item in row)
-                {
-                    <td>@item.Value</td>
-                }
-            </tr>
-        }
-    </table>
-        
-    }
-    @* @foreach (var row in test.Take(5)) *@
-    @* { *@
-    @*     <div style="display: flex; flex-direction:row" class="gap-2"> *@
-    @*         @foreach (var item in row) *@
-    @*         { *@
-    @*             <div style="display: flex; flex-direction:column"> *@
-    @*                 @if (test.IndexOf(row) == 0) *@
-    @*                 { *@
-    @*                     <div>@item.Key</div> *@
-    @*                 } *@
-    @*                 <div>@item.Value</div> *@
-    @*             </div> *@
-    @*         } *@
-    @*     </div> *@
-    @* } *@
+<div style="height: 70vh; width: 80vw">
 
-    <span>Records: @test.Count</span>
-    <span>Time elapsed: @stopwatch.Elapsed</span>
-    <span>Current average: @averageTimeSpan</span>
+    <div class="flex flex-wrap flex-column card" style="max-height: 100%; overflow: auto; max-width: 100%;">
+        <table>
+            @foreach (var col in cols)
+            {
+                <th>@col.ColumnDisplayName</th>
+            }
+            @if (UseDate)
+            {
+                <Virtualize OverscanCount="20" ItemsProvider="GetEntitiesByDateScoped" ItemSize="24" Context="row">
+                    <tr style="height: 24px">
+                        @foreach (var item in row)
+                        {
+                            <td style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
+                        }
+                    </tr>
+                </Virtualize>
+            }
+            else
+            {
+                <Virtualize OverscanCount="20" ItemsProvider="GetEntitiesScoped" ItemSize="24" Context="row">
+                    <tr style="height: 24px">
+                        @foreach (var item in row)
+                        {
+                            <td style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
+                        }
+                    </tr>
+                </Virtualize>
+            }
+        </table>
+    </div>
 </div>
-
-<button class="btn btn-primary" @onclick="Run">Run</button>
-<br>
-<button class="btn btn-primary" @onclick="RunWithDate">Run with date</button>
+<label for="use-date">Use date</label>
+<InputCheckbox Value="UseDate" ValueExpression="() => UseDate" ValueChanged="@(GetNewTotal)" id="use-date" DisplayName="Use date"></InputCheckbox>
 <InputDate @bind-Value="EntityService.SelectedDateTime" Type="InputDateType.DateTimeLocal" TValue="DateTime"></InputDate>
+<br><br>
 
+<span>Records: @total</span>
+<br>
+<span>Time elapsed: @stopwatch.Elapsed</span>
+<br>
+<span>Current average: @averageTimeSpan</span>
+@* *@
+@* <button class="btn btn-primary" @onclick="Run">Run</button> *@
+@* <br> *@
+@* <button class="btn btn-primary" @onclick="RunWithDate">Run with date</button> *@
 
 
 <style>
 </style>
 
 @code {
-    List<Dictionary<string, object>> test = new();
+    List<Dictionary<ColDescriptor, object>> test = new();
     Stopwatch stopwatch = new();
     List<TimeSpan> _timeSpans = new();
+    int total;
+    List<ColDescriptor> cols = new();
 
     double averageTimeSpan => _timeSpans.Any() ? _timeSpans.Average(x => x.TotalMilliseconds) : 0;
+
+    protected override void OnInitialized()
+    {
+        total = EntityService.GetEntityCount();
+    }
 
     private void Run()
     {
@@ -80,6 +89,48 @@
         test = EntityService.GetAllEntitiesByDate(DateTime.Now);
         stopwatch.Stop();
         _timeSpans.Add(stopwatch.Elapsed);
+    }
+
+    private async ValueTask<ItemsProviderResult<Dictionary<ColDescriptor, object>>> GetEntitiesScoped(ItemsProviderRequest request)
+    {
+        stopwatch.Reset();
+        stopwatch.Start();
+        List<Dictionary<ColDescriptor, object>> entities = EntityService.GetRangeOfEntities(request.StartIndex, request.StartIndex + request.Count);
+
+        var result = new ItemsProviderResult<Dictionary<ColDescriptor, object>>(entities, total);
+        cols = entities.FirstOrDefault()?.Keys.ToList();
+        stopwatch.Stop();
+        _timeSpans.Add(stopwatch.Elapsed);
+        await InvokeAsync(StateHasChanged);
+        return result;
+    }
+
+    public bool UseDate { get; set; }
+
+    private async ValueTask<ItemsProviderResult<Dictionary<ColDescriptor, object>>> GetEntitiesByDateScoped(ItemsProviderRequest request)
+    {
+        stopwatch.Reset();
+        stopwatch.Start();
+        List<Dictionary<ColDescriptor, object>> entities = EntityService.GetRangeOfEntitiesBySelectedDate(request.StartIndex, request.StartIndex + request.Count);
+        var result = new ItemsProviderResult<Dictionary<ColDescriptor, object>>(entities, total);
+        cols = entities.FirstOrDefault()?.Keys.ToList();
+        stopwatch.Stop();
+        _timeSpans.Add(stopwatch.Elapsed);
+        await InvokeAsync(StateHasChanged);
+        return result;
+    }
+
+    private void GetNewTotal(bool value)
+    {
+        UseDate = value;
+        if (UseDate)
+        {
+            total = EntityService.GetEntityCountByDate();
+        }
+        else
+        {
+            total = EntityService.GetEntityCount();
+        }
     }
 
 }

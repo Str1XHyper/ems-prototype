@@ -75,9 +75,9 @@ public class SqlConnector:ISqlConnector
             connection.Close();
 
         }
-        catch
+        catch (Exception e)
         {
-            Console.WriteLine("Error");
+            Console.WriteLine(e);
         }
 
         return resultList;

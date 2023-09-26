@@ -34,17 +34,42 @@ public class EntityService : IEntityService
         _entityRepo.UpdateColumn(selectedColDescriptor);
     }
 
+    public int GetEntityCount()
+    {
+        return _entityRepo.GetTotalEntityCount();
+    }
+
+    public List<Dictionary<ColDescriptor, object>> GetRangeOfEntities(int start, int end)
+    {
+        return _entityRepo.GetRangeOfEntities(start, end);
+    }
+
+    public List<Dictionary<ColDescriptor, object>> GetRangeOfEntitiesBySelectedDate(int requestStartIndex, int requestCount)
+    {
+        return _entityRepo.GetRangeOfEntitiesBySelectedDate(requestStartIndex, requestCount);
+    }
+
+    public int GetEntityCountByDate()
+    {
+        return _entityRepo.GetEntityCountByDate();
+    }
+
+    public void UpdateRow(Dictionary<ColDescriptor, object> row)
+    {
+        _entityRepo.UpdateRow(row);
+    }
+
     public EntityService(IEntityRepo entityRepo)
     {
         _entityRepo = entityRepo;
     }
 
-    public List<Dictionary<string, object>> GetAllEntities()
+    public List<Dictionary<ColDescriptor, object>> GetAllEntities()
     {
         return _entityRepo.GetAllEntities();
     }
     
-    public List<Dictionary<string, object>> GetAllEntitiesByDate(DateTime dateTime)
+    public List<Dictionary<ColDescriptor, object>> GetAllEntitiesByDate(DateTime dateTime)
     {
         return _entityRepo.GetAllEntitiesAsOfDateTime(dateTime);
     }

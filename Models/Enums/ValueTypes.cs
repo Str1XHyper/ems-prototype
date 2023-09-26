@@ -6,5 +6,13 @@ public enum ValueTypes
     STRING,
     DATE,
     BOOLEAN,
-    GUID
+    GUID,
+    EMAIL,
+    PHONE,
+    URL,
+    PASSWORD,
+    CURRENCY,
+    PERCENTAGE,
+    DATETIME,
+    TIME,
 }
