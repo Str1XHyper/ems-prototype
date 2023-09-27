@@ -1,0 +1,217 @@
+﻿@page "/editcolumn"
+@using Interfaces
+@using Models.Enums
+@using Models.Extensions
+@using Models.Structs
+@using System.ComponentModel.DataAnnotations
+@inject IJSRuntime JSRuntime
+@inject IEntityService EntityService
+<div class="d-flex flex-row justify-content-between align-items-center px-2">
+    <h1>Edit column</h1>
+    <button @onclick="() => { AddDialog();}" class="btn btn-success">Add</button>
+</div>
+<div class="flex flex-wrap flex-column card ">
+    <table class="result-table">
+        <colgroup>
+            <col>
+            <col>
+            <col>
+            <col>
+            <col>
+            <col>
+        </colgroup>
+        <tr>
+            <th>
+                @nameof(ColDescriptor.ColumnName)
+            </th>
+            <th>
+                @nameof(ColDescriptor.ColumnDisplayName)
+            </th>
+            <th>
+                @nameof(ColDescriptor.ColumnValueType)
+            </th>
+            <th>
+                @nameof(ColDescriptor.ColumnEnabled)
+            </th>
+            <th>
+                @nameof(ColDescriptor.ColumnVisible)
+            </th>
+            <th>
+                @nameof(ColDescriptor.ValueEditable)
+            </th>
+            <th>
+                Actions
+            </th>
+
+        </tr>
+        @foreach (var descriptor in _colDescriptors)
+        {
+            <tr>
+                <td>
+                    @descriptor.ColumnName
+                </td>
+                <td>
+                    @descriptor.ColumnDisplayName
+                </td>
+                <td>
+                    @descriptor.ColumnValueType
+                </td>
+                <td>
+                    @descriptor.ColumnEnabled
+                </td>
+                <td>
+                    @descriptor.ColumnVisible
+                </td>
+                <td>
+                    @descriptor.ValueEditable
+                </td>
+                @if (descriptor.ColumnEditable)
+                {
+                    <td>
+                        <button @onclick="() => { ShowDialog(descriptor); }" class="btn btn-outline-primary"><i class="fas fa-pencil"></i></button>
+                        <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId); }" class="btn btn-outline-danger"><i class="fas fa-trash"></i></button>
+                    </td>
+                }
+                else
+                {
+                    <td>
+                        <button disabled class="btn btn-outline-primary"><i class="fas fa-pencil"></i></button>
+                        <button disabled class="btn btn-outline-danger"><i class="fas fa-trash"></i></button>
+                    </td>
+                }
+            </tr>
+        }
+    </table>
+</div>
+
+<dialog id="edit-column-dialog">
+    <EditForm  OnValidSubmit="EditColumnFunc" Model="SelectedColDescriptor">
+        <DataAnnotationsValidator/>
+        <div class="field">
+            
+            <label for="name-input">Name</label>
+            <InputText id="name-input" @bind-Value="SelectedColDescriptor.ColumnDisplayName" placeholder="Column name"/>
+            <ValidationMessage For="@(() => SelectedColDescriptor.ColumnName)"/>
+        </div>
+        <div class="field field-dropdown">
+            <label for="type-input">Type</label>
+            <InputSelect id="type-input" @bind-Value="SelectedColDescriptor.ColumnValueType">
+                @foreach (var item in Enum.GetValues(typeof(ValueTypes)))
+                {
+                    <option value="@item">@item.ToString()</option>
+                }
+            </InputSelect>
+            <ValidationMessage For="@(() => SelectedColDescriptor.ColumnValueType)"/>
+            
+        </div>
+        <div class="field field-checkbox">
+            <label for="enabled-input" >Enabled</label>
+            <InputCheckbox id="enabled-input" @bind-Value="SelectedColDescriptor.ColumnEnabled">  </InputCheckbox>
+            <ValidationMessage For="@(() => SelectedColDescriptor.ColumnEnabled)"/>
+        </div>
+        <div class="field field-checkbox">
+            <label for="visible-input" >Visible</label>
+            <InputCheckbox id="visible-input" @bind-Value="SelectedColDescriptor.ColumnVisible">  </InputCheckbox>
+            <ValidationMessage For="@(() => SelectedColDescriptor.ColumnVisible)"/>
+        </div>
+    
+        <button @onclick="() => { success = false; }" value="cancel" formmethod="dialog" class="btn btn-danger">Cancel</button>
+        <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Update</button>
+    
+    </EditForm>
+</dialog>
+<dialog id="add-column-dialog" style="width: 400px">
+        <EditForm OnValidSubmit="AddColumnFunc" Model="newColumn">
+            <DataAnnotationsValidator/>
+            
+            <div class="field">
+                    <label for="column-name-input">Name</label>
+                    <InputText id="column-name-input" @bind-Value="newColumn.ColumnName" class="form-control" placeholder="Column name"/>
+                    <ValidationMessage For="@(() => newColumn.ColumnName)"/>
+            </div>
+            
+        <div class="field field-dropdown">
+                <label for="column-type-input">Type</label>
+                <InputSelect id="column-type-input" class="form-control" @bind-Value="newColumn.ColumnValueType">
+                    @foreach (var item in Enum.GetValues(typeof(ValueTypes)))
+                    {
+                        <option value="@item">@item.ToString()</option>
+                    }
+                </InputSelect>
+                <ValidationMessage For="@(() => newColumn.ColumnValueType)"/>
+            </div>
+            <button @onclick="() => { success = false; HideDialog(); }" value="cancel" type="reset" formmethod="dialog" class="btn btn-danger">Cancel</button>
+            <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Add</button>
+        </EditForm>
+</dialog>
+<style>
+    
+</style>
+
+@code {
+
+    class NewColumn
+    {
+        [Required]
+        public string ColumnName { get; set; }
+
+        public ValueTypes ColumnValueType { get; set; }
+    }
+
+    NewColumn newColumn = new NewColumn();
+
+    private void AddColumnFunc()
+    {
+        JSRuntime.InvokeVoidAsync("HideDialog", "add-column-dialog");
+        if (success)
+        {
+            EntityService.AddColumn(newColumn.ColumnName, newColumn.ColumnValueType);
+        }
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+    IEnumerable<ColDescriptor> _colDescriptors;
+
+    ColDescriptor SelectedColDescriptor = new();
+    
+    public bool success { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+
+    private void RemoveColumnFunc(Guid id)
+    {
+        EntityService.RemoveColumn(id);
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+    
+    
+    private void AddDialog()
+    {
+        JSRuntime.InvokeVoidAsync("ShowDialog", "add-column-dialog");
+    }
+
+    private void ShowDialog(ColDescriptor colDescriptor)
+    {
+        SelectedColDescriptor.CopyFrom(colDescriptor);
+        JSRuntime.InvokeVoidAsync("ShowDialog", "edit-column-dialog");
+    }
+
+    private void EditColumnFunc()
+    {
+        JSRuntime.InvokeVoidAsync("HideDialog", "edit-column-dialog");
+        if (success)
+        {
+            EntityService.UpdateColumn(SelectedColDescriptor);
+        }
+
+        _colDescriptors = EntityService.GetTableSpec();
+    }
+
+    private void HideDialog()
+    {
+        JSRuntime.InvokeVoidAsync("HideDialog", "add-column-dialog");
+    }
+
+}

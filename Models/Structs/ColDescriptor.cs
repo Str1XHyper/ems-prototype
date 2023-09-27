@@ -9,4 +9,7 @@ public class ColDescriptor
     public string ColumnDisplayName;
     public ValueTypes ColumnValueType;
     public bool ColumnEnabled;
+    public bool ColumnVisible;
+    public bool ColumnEditable;
+    public bool ValueEditable;
 }

@@ -71,13 +71,21 @@ public class EntityRepo:IEntityRepo
                         {
                             descriptor.ColumnValueType = (ValueTypes)columnType;
                         }
-
                         break;
                     case "ColumnDisplayName" when kvp.Value is string columnDisplayName:
                         descriptor.ColumnDisplayName = columnDisplayName;
                         break;
-                    case "ColumnEnabled" when kvp.Value is bool ColumnEnabled:
-                        descriptor.ColumnEnabled = ColumnEnabled;
+                    case "ColumnEnabled" when kvp.Value is bool columnEnabled:
+                        descriptor.ColumnEnabled = columnEnabled;
+                        break;
+                    case "ColumnVisible" when kvp.Value is bool columnVisible:
+                        descriptor.ColumnVisible = columnVisible;
+                        break;
+                    case "ColumnEditable" when kvp.Value is bool columnEditable:
+                        descriptor.ColumnEditable = columnEditable;
+                        break;
+                    case "ValueEditable" when kvp.Value is bool valueEditable:
+                        descriptor.ValueEditable = valueEditable;
                         break;
                 }
             }
@@ -114,10 +122,10 @@ public class EntityRepo:IEntityRepo
             var parameters = new Dictionary<string, object>();
             parameters.Add("dateTime", SelectedDateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
             var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName}]"));
-            var query = $"WITH Records as (SELECT {selectedColumns}, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity] For System_Time As Of @dateTime) Select * From Records WHERE RowNumber between {requestStartIndex} and {requestCount}";
+            var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity] For System_Time As Of @dateTime) Select {selectedColumns} From Records WHERE RowNumber between {requestStartIndex} and {requestCount}  ORDER BY ValidFrom ";
             var result = _sqlConnector.GetList(query, parameters).ToList();
 
-            var rows = result.Select(resultRow => resultRow.SkipLast(1).ToDictionary(col => _entityTableSpecAsOfSelected.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
+            var rows = result.Select(resultRow => resultRow.ToDictionary(col => _entityTableSpecAsOfSelected.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
 
             return rows;
         }
@@ -151,10 +159,10 @@ public class EntityRepo:IEntityRepo
     public List<Dictionary<ColDescriptor, object>> GetRangeOfEntities(int start, int end)
     {
         var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}]"));
-        var query = $"WITH Records as (SELECT {selectedColumns}, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity]) Select * From Records WHERE RowNumber between {start} and {end}";
+        var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity]) Select {selectedColumns} From Records WHERE RowNumber between {start} and {end} ORDER BY ValidFrom";
         var result =_sqlConnector.GetList(query);
 
-        var rows = result.Select(resultRow => resultRow.SkipLast(1).ToDictionary(col => _entityTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
+        var rows = result.Select(resultRow => resultRow.ToDictionary(col => _entityTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
 
         return rows;
     }
@@ -294,8 +302,17 @@ public class EntityRepo:IEntityRepo
                     case "ColumnDisplayName" when kvp.Value is string columnDisplayName:
                         descriptor.ColumnDisplayName = columnDisplayName;
                         break;
-                    case "ColumnEnabled" when kvp.Value is bool ColumnEnabled:
-                        descriptor.ColumnEnabled = ColumnEnabled;
+                    case "ColumnEnabled" when kvp.Value is bool columnEnabled:
+                        descriptor.ColumnEnabled = columnEnabled;
+                        break;
+                    case "ColumnVisible" when kvp.Value is bool columnVisible:
+                        descriptor.ColumnVisible = columnVisible;
+                        break;
+                    case "ColumnEditable" when kvp.Value is bool columnEditable:
+                        descriptor.ColumnEditable = columnEditable;
+                        break;
+                    case "ValueEditable" when kvp.Value is bool valueEditable:
+                        descriptor.ValueEditable = valueEditable;
                         break;
                 }
             }
@@ -365,10 +382,13 @@ public class EntityRepo:IEntityRepo
         {
             if (selectedColDescriptor.ColumnValueType == original.ColumnValueType)
             {
-                command.CommandText = "Update [dbo].[EntitySpec] SET ColumnEnabled = @columnEnabled, ColumnDisplayName = @columnDisplayName WHERE Id = @id";
+                command.CommandText = "Update [dbo].[EntitySpec] SET ColumnEnabled = @columnEnabled, ColumnDisplayName = @columnDisplayName, ColumnVisible = @columnVisible, ColumnEditable = @columnEditable, ValueEditable = @valueEditable WHERE Id = @id";
                 command.Parameters.AddWithValue("id", selectedColDescriptor.DescriptorId);
                 command.Parameters.AddWithValue("columnEnabled", selectedColDescriptor.ColumnEnabled);
                 command.Parameters.AddWithValue("columnDisplayName", selectedColDescriptor.ColumnDisplayName);
+                command.Parameters.AddWithValue("columnVisible", selectedColDescriptor.ColumnVisible);
+                command.Parameters.AddWithValue("columnEditable", selectedColDescriptor.ColumnEditable);
+                command.Parameters.AddWithValue("valueEditable", selectedColDescriptor.ValueEditable);
 
                 command.ExecuteNonQuery();
             }
@@ -403,10 +423,13 @@ public class EntityRepo:IEntityRepo
                 command.CommandText = "UPDATE [dbo].[EntitySpec] SET ColumnEnabled = 0 WHERE Id = @id";
                 command.Parameters.AddWithValue("id", selectedColDescriptor.DescriptorId);
                 command.ExecuteNonQuery();
-                command.CommandText = "Insert Into [dbo].[EntitySpec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled) VALUES (@internalColumnName, @columnName, @columnValueType, 1)";
+                command.CommandText = "Insert Into [dbo].[EntitySpec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ColumnEditable, ValueEditable) VALUES (@internalColumnName, @columnName, @columnValueType, 1, @columnEditable, @valueEditable)";
                 command.Parameters.AddWithValue("internalColumnName", internalColumnName);
                 command.Parameters.AddWithValue("columnValueType", selectedColDescriptor.ColumnValueType);
                 command.Parameters.AddWithValue("columnName", selectedColDescriptor.ColumnDisplayName);
+                command.Parameters.AddWithValue("columnVisible", selectedColDescriptor.ColumnVisible);
+                command.Parameters.AddWithValue("columnEditable", selectedColDescriptor.ColumnEditable);
+                command.Parameters.AddWithValue("valueEditable", selectedColDescriptor.ValueEditable);
                 command.ExecuteNonQuery();
                 command.CommandText= $"ALTER TABLE [dbo].[Entity] ADD [{internalColumnName}] {datatype}";
                 

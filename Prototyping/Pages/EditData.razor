@@ -10,7 +10,7 @@
     {
         <table>
             <tr>
-                @foreach (var col in Data.First().Keys)
+                @foreach (var col in Data.First().Keys.Where(x => x.ColumnVisible))
                 {
                     <th>@col.ColumnDisplayName</th>
                 }
@@ -19,7 +19,7 @@
             @foreach (var row in Data.Take(5))
             {
                 <tr>
-                    @foreach (var item in row)
+                    @foreach (var item in row.Where(x => x.Key.ColumnVisible))
                     {
                         <td>@item.Value</td>
                     }
@@ -36,9 +36,9 @@
 </div>
 <dialog id="edit-row-dialog" style="width: 400px">
     <EditForm OnValidSubmit="EditRow" Model="SelectedRow">
-        @foreach (var kvp in SelectedRow)
+        @foreach (var kvp in SelectedRow.Where(x => x.Key.ValueEditable))
         {
-            <div class="form-group">
+            <div class="field">
                 <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
                 @{
                     var type = kvp.Key.ColumnValueType switch{
@@ -67,8 +67,6 @@
                     {
                         <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@kvp.Value" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c);}"/>
                     }
-
-
                 }
             </div>
         }

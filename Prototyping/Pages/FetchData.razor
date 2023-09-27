@@ -8,29 +8,28 @@
 
 <h1>Read</h1>
 <div style="height: 70vh; width: 80vw">
-
-    <div class="flex flex-wrap flex-column card" style="max-height: 100%; overflow: auto; max-width: 100%;">
+    <div class="d-flex flex-wrap flex-column card" style="max-height: 100%; overflow: auto; max-width: 100%;">
         <table class="result-table">
             
             <colgroup>
                 
-                @foreach (var col in cols)
+                @foreach (var col in cols.Where(x=> x.ColumnVisible))
                 {
                     <col>
                 }
             </colgroup>
             <tr >
-            @foreach (var col in cols)
-            {
-                <th  class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@col.ColumnDisplayName</th>
-            }
+                @foreach (var col in cols.Where(x=> x.ColumnVisible))
+                {
+                    <th  class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@col.ColumnDisplayName</th>
+                }
                 
             </tr>
             @if (UseDate)
             {
                 <Virtualize @ref="DateScopedVirtualizer" OverscanCount="20" ItemsProvider="GetEntitiesByDateScoped" ItemSize="24" Context="row">
                     <tr style="height: 24px" class="border-bottom">
-                        @foreach (var item in row)
+                        @foreach (var item in row.Where(x => x.Key.ColumnVisible))
                         {
                             <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
                         }
@@ -41,9 +40,9 @@
             {
                 <Virtualize @ref="DefaultVirtualizer" OverscanCount="20" ItemsProvider="GetEntitiesScoped" ItemSize="24" Context="row">
                     <tr style="height: 24px" class="border-bottom">
-                        @foreach (var item in row)
+                        @foreach (var item in row.Where(x => x.Key.ColumnVisible))
                         {
-                            <td style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
+                            <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
                         }
                     </tr>
                 </Virtualize>
@@ -51,12 +50,16 @@
         </table>
     </div>
 </div>
-<label for="use-date">Use date</label>
-<InputCheckbox Value="UseDate" ValueExpression="() => UseDate" ValueChanged="@(GetNewTotal)" id="use-date" DisplayName="Use date"></InputCheckbox>
+<div class="d-flex flex-row align-items-center gap-4 my-2">
+<div>
+    <label for="use-date">Use date</label>
+    <InputCheckbox Value="UseDate" ValueExpression="() => UseDate" ValueChanged="@(GetNewTotal)" id="use-date" DisplayName="Use date"></InputCheckbox>
+</div>
+<div class="field mb-0">
 <InputDate @bind-Value="EntityService.SelectedDateTime" Type="InputDateType.DateTimeLocal" TValue="DateTime"></InputDate>
-
+</div>
 <button class="btn btn-outline-primary" @onclick="Refresh"> <i class="fas fa-refresh"></i></button>
-<br><br>
+</div>
 
 <span>Records: @total</span>
 <br>
@@ -70,7 +73,6 @@
 
 
 <style>
-
 .result-table colgroup col:nth-child(even) {
 background-color: #0001;
 }
@@ -97,7 +99,7 @@ background-color: #0001;
         List<Dictionary<ColDescriptor, object>> entities = EntityService.GetRangeOfEntities(request.StartIndex, request.StartIndex + request.Count);
 
         var result = new ItemsProviderResult<Dictionary<ColDescriptor, object>>(entities, total);
-        cols = entities.FirstOrDefault()?.Keys.ToList();
+        cols = entities.FirstOrDefault()?.Keys.Where(x => x.ColumnVisible).ToList() ?? new();
         stopwatch.Stop();
         _timeSpans.Add(stopwatch.Elapsed);
         await InvokeAsync(StateHasChanged);
@@ -112,7 +114,7 @@ background-color: #0001;
         stopwatch.Start();
         List<Dictionary<ColDescriptor, object>> entities = EntityService.GetRangeOfEntitiesBySelectedDate(request.StartIndex, request.StartIndex + request.Count);
         var result = new ItemsProviderResult<Dictionary<ColDescriptor, object>>(entities, total);
-        cols = entities.FirstOrDefault()?.Keys.ToList();
+        cols = entities.FirstOrDefault()?.Keys.Where(x => x.ColumnVisible).ToList() ?? new();
         stopwatch.Stop();
         _timeSpans.Add(stopwatch.Elapsed);
         await InvokeAsync(StateHasChanged);
@@ -137,10 +139,12 @@ background-color: #0001;
         if (UseDate)
         {
             await DateScopedVirtualizer.RefreshDataAsync();
+            total = EntityService.GetEntityCountByDate();
         }
         else
         {
             await DefaultVirtualizer.RefreshDataAsync();
+            total = EntityService.GetEntityCount();
         }
     }
 
