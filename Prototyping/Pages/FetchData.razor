@@ -10,26 +10,37 @@
 <div style="height: 70vh; width: 80vw">
 
     <div class="flex flex-wrap flex-column card" style="max-height: 100%; overflow: auto; max-width: 100%;">
-        <table>
+        <table class="result-table">
+            
+            <colgroup>
+                
+                @foreach (var col in cols)
+                {
+                    <col>
+                }
+            </colgroup>
+            <tr >
             @foreach (var col in cols)
             {
-                <th>@col.ColumnDisplayName</th>
+                <th  class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@col.ColumnDisplayName</th>
             }
+                
+            </tr>
             @if (UseDate)
             {
-                <Virtualize OverscanCount="20" ItemsProvider="GetEntitiesByDateScoped" ItemSize="24" Context="row">
-                    <tr style="height: 24px">
+                <Virtualize @ref="DateScopedVirtualizer" OverscanCount="20" ItemsProvider="GetEntitiesByDateScoped" ItemSize="24" Context="row">
+                    <tr style="height: 24px" class="border-bottom">
                         @foreach (var item in row)
                         {
-                            <td style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
+                            <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
                         }
                     </tr>
                 </Virtualize>
             }
             else
             {
-                <Virtualize OverscanCount="20" ItemsProvider="GetEntitiesScoped" ItemSize="24" Context="row">
-                    <tr style="height: 24px">
+                <Virtualize @ref="DefaultVirtualizer" OverscanCount="20" ItemsProvider="GetEntitiesScoped" ItemSize="24" Context="row">
+                    <tr style="height: 24px" class="border-bottom">
                         @foreach (var item in row)
                         {
                             <td style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
@@ -43,6 +54,8 @@
 <label for="use-date">Use date</label>
 <InputCheckbox Value="UseDate" ValueExpression="() => UseDate" ValueChanged="@(GetNewTotal)" id="use-date" DisplayName="Use date"></InputCheckbox>
 <InputDate @bind-Value="EntityService.SelectedDateTime" Type="InputDateType.DateTimeLocal" TValue="DateTime"></InputDate>
+
+<button class="btn btn-outline-primary" @onclick="Refresh"> <i class="fas fa-refresh"></i></button>
 <br><br>
 
 <span>Records: @total</span>
@@ -57,6 +70,10 @@
 
 
 <style>
+
+.result-table colgroup col:nth-child(even) {
+background-color: #0001;
+}
 </style>
 
 @code {
@@ -71,24 +88,6 @@
     protected override void OnInitialized()
     {
         total = EntityService.GetEntityCount();
-    }
-
-    private void Run()
-    {
-        stopwatch.Reset();
-        stopwatch.Start();
-        test = EntityService.GetAllEntities();
-        stopwatch.Stop();
-        _timeSpans.Add(stopwatch.Elapsed);
-    }
-
-    private void RunWithDate()
-    {
-        stopwatch.Reset();
-        stopwatch.Start();
-        test = EntityService.GetAllEntitiesByDate(DateTime.Now);
-        stopwatch.Stop();
-        _timeSpans.Add(stopwatch.Elapsed);
     }
 
     private async ValueTask<ItemsProviderResult<Dictionary<ColDescriptor, object>>> GetEntitiesScoped(ItemsProviderRequest request)
@@ -132,5 +131,20 @@
             total = EntityService.GetEntityCount();
         }
     }
+
+    private async Task Refresh()
+    {
+        if (UseDate)
+        {
+            await DateScopedVirtualizer.RefreshDataAsync();
+        }
+        else
+        {
+            await DefaultVirtualizer.RefreshDataAsync();
+        }
+    }
+
+    public Virtualize<Dictionary<ColDescriptor, object>> DateScopedVirtualizer { get; set; }
+    public Virtualize<Dictionary<ColDescriptor, object>> DefaultVirtualizer { get; set; }
 
 }
