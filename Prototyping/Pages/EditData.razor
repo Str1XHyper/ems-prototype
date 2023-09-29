@@ -5,40 +5,64 @@
 @inject IEntityService EntityService
 @inject IJSRuntime JSRuntime
 <h1>Edit data</h1>
-<div class="flex flex-wrap flex-column card ">
-    @if (Data.Any())
-    {
-        <table>
-            <tr>
-                @foreach (var col in Data.First().Keys.Where(x => x.ColumnVisible))
-                {
-                    <th>@col.ColumnDisplayName</th>
-                }
-                <th>Actions</th>
-            </tr>
-            @foreach (var row in Data.Take(5))
-            {
-                <tr>
-                    @foreach (var item in row.Where(x => x.Key.ColumnVisible))
+    <div style="height: 70vh; width: 80vw">
+        <div class="d-flex flex-wrap flex-column card" style="max-height: 100%; overflow: auto; max-width: 100%;">
+            <table class="result-table">
+
+                <colgroup>
+
+                    @foreach (var col in cols.Where(x => x.ColumnVisible))
                     {
-                        <td>@item.Value</td>
+                        <col>
                     }
-                    <td>
-                        <button @onclick="() => { ShowDialog(row); }" class="btn btn-outline-primary">
-                            <i class="fas fa-pencil"></i>
-                        </button>
-                        @* <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId);}" class="btn btn-outline-danger"><i class="fas fa-trash"></i></button> *@
-                    </td>
+                        <col style="width: 50px">
+                </colgroup>
+                <tr >
+                    @foreach (var col in cols.Where(x => x.ColumnVisible))
+                    {
+                        <th class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@col.ColumnDisplayName</th>
+                    }
+                    <th class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">Actions</th>
                 </tr>
-            }
-        </table>
-    }
-</div>
+                <Virtualize @ref="DefaultVirtualizer" OverscanCount="20" ItemsProvider="GetEntitiesScoped" ItemSize="24" Context="row">
+                    <tr style="height: 24px" class="border-bottom">
+                        @foreach (var item in row.Where(x => x.Key.ColumnVisible))
+                        {
+                            <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
+                        }
+                        <td>
+                            <button @onclick="() => { ShowDialog(row); }" class="btn btn-outline-primary">
+                                <i class="fas fa-pencil"></i>
+                            </button>
+                            @* <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId);}" class="btn btn-outline-danger"><i class="fas fa-trash"></i></button> *@
+                        </td>
+                    </tr>
+                </Virtualize>
+
+            </table>
+        </div>
+    </div>
 <dialog id="edit-row-dialog" style="width: 400px">
     <EditForm OnValidSubmit="EditRow" Model="SelectedRow">
         @foreach (var kvp in SelectedRow.Where(x => x.Key.ValueEditable))
         {
-            <div class="field">
+            @if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
+            {
+                <div class="field field-dropdown">
+                <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                <select id="@kvp.Key.ColumnName" style="width: 100%"  @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                    @foreach (var row in _relations[kvp.Key])
+                    {
+                        <option value="@row.First(x => x.Key.ColumnName == "person_Id_1").Value">@row.FirstOrDefault(x => x.Key.ColumnName.Contains("Name")).Value</option>
+                    }
+                </select>
+                    
+                </div>   
+            }
+            else
+            {
+            
+            <div class="field ">
                 <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
                 @{
                     var type = kvp.Key.ColumnValueType switch{
@@ -61,14 +85,16 @@
                         };
                     if (kvp.Key.ColumnValueType == ValueTypes.DATETIME)
                     {
-                        <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@((kvp.Value as DateTime? ?? DateTime.Now).ToString("s"))" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c);}"/>
+                        <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@((kvp.Value as DateTime? ?? DateTime.Now).ToString("s"))" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
                     }
                     else
                     {
-                        <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@kvp.Value" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c);}"/>
+                        <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@kvp.Value" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
                     }
                 }
+                
             </div>
+            }
         }
         <button @onclick="() => { success = false; }" value="cancel" formmethod="dialog" class="btn btn-danger">Cancel</button>
         <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Update</button>
@@ -79,47 +105,77 @@
 @code {
     bool success = false;
 
-    List<Dictionary<ColDescriptor, object>> Data = new();
     Dictionary<ColDescriptor, object> SelectedRow = new();
-    IEnumerable<ColDescriptor> _colDescriptors;
+    Dictionary<ColDescriptor, List<Dictionary<ColDescriptor, object>>> _relations = new();
+    // IEnumerable<ColDescriptor> _colDescriptors;
+    List<ColDescriptor> cols = new();
+    int total;
 
 
     protected override void OnInitialized()
     {
-        Run();
+        GetNewTotal();
     }
 
     private void ShowDialog(Dictionary<ColDescriptor, object> row)
     {
         SelectedRow.Clear();
+        _relations.Clear();
         foreach (var kvp in row)
         {
+            if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
+            {
+                _relations.Add(kvp.Key,EntityService.GetRelationData(kvp.Key));
+            }
             SelectedRow.Add(kvp.Key, kvp.Value);
         }
     // SelectedRow = SelectedRow.Union(row).ToDictionary(x => x.Key, x => x.Value);
         JSRuntime.InvokeVoidAsync("ShowDialog", "edit-row-dialog");
     }
 
-    private void EditRow()
+    private async Task EditRow()
     {
-        JSRuntime.InvokeVoidAsync("HideDialog", "edit-row-dialog");
+        await JSRuntime.InvokeVoidAsync("HideDialog", "edit-row-dialog");
         if (success)
         {
             EntityService.UpdateRow(SelectedRow);
         }
 
-        Run();
+        await Refresh();
     }
 
-    private void Run()
-    {
-        Data = EntityService.GetAllEntities();
-        _colDescriptors = EntityService.GetTableSpec();
-    }
+    // private void Run()
+    // {
+    //     Data = EntityService.GetAllEntities();
+    //     _colDescriptors = EntityService.GetTableSpec();
+    // }
 
     private void OnChangeHandler(ColDescriptor kvpKey, ChangeEventArgs changeEventArgs)
     {
         SelectedRow[kvpKey] = changeEventArgs.Value;
     }
+
+    private void GetNewTotal()
+    {
+        total = EntityService.GetEntityCount();
+    }
+
+    private async Task Refresh()
+    {
+        await DefaultVirtualizer.RefreshDataAsync();
+        total = EntityService.GetEntityCount();
+    }
+
+    private async ValueTask<ItemsProviderResult<Dictionary<ColDescriptor, object>>> GetEntitiesScoped(ItemsProviderRequest request)
+    {
+        var entities = EntityService.GetRangeOfEntities(request.StartIndex, request.StartIndex + request.Count);
+
+        var result = new ItemsProviderResult<Dictionary<ColDescriptor, object>>(entities, total);
+        cols = entities.FirstOrDefault()?.Keys.Where(x => x.ColumnVisible).ToList() ?? new();
+        await InvokeAsync(StateHasChanged);
+        return result;
+    }
+
+    public Virtualize<Dictionary<ColDescriptor, object>> DefaultVirtualizer { get; set; }
 
 }

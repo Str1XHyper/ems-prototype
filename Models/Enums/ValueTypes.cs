@@ -15,4 +15,5 @@ public enum ValueTypes
     PERCENTAGE,
     DATETIME,
     TIME,
+    RELATION,
 }

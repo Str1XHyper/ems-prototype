@@ -14,9 +14,9 @@ public class EntityService : IEntityService
         set => _entityRepo.UpdateDateSelectedTime(value);
     }
 
-    public void AddColumn(string columnName, ValueTypes columnValueType)
+    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable =null, string? referenceColumn = null )
     {
-        _entityRepo.AddColumn(columnName, columnValueType);
+        _entityRepo.AddColumn(columnName, columnValueType, referenceTable, referenceColumn);
     }
 
     public IEnumerable<ColDescriptor> GetTableSpec()
@@ -77,5 +77,20 @@ public class EntityService : IEntityService
     public void UpdateDateSelectedTime(DateTime time)
     {
         _entityRepo.UpdateDateSelectedTime(time);
+    }
+
+    public IEnumerable<string> GetTableNames()
+    {
+        return _entityRepo.GetTableNames();
+    }
+
+    public IEnumerable<ColDescriptor> GetColumns(string value)
+    {
+        return _entityRepo.GetColumnsFromTable(value);
+    }
+
+    public List<Dictionary<ColDescriptor, object>> GetRelationData(ColDescriptor colDescriptor)
+    {
+        return _entityRepo.GetRelationData(colDescriptor);
     }
 }

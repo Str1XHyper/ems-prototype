@@ -8,7 +8,7 @@
 @inject IEntityService EntityService
 <div class="d-flex flex-row justify-content-between align-items-center px-2">
     <h1>Edit column</h1>
-    <button @onclick="() => { AddDialog();}" class="btn btn-success">Add</button>
+    <button @onclick="() => { AddDialog(); }" class="btn btn-success">Add</button>
 </div>
 <div class="flex flex-wrap flex-column card ">
     <table class="result-table">
@@ -68,15 +68,23 @@
                 @if (descriptor.ColumnEditable)
                 {
                     <td>
-                        <button @onclick="() => { ShowDialog(descriptor); }" class="btn btn-outline-primary"><i class="fas fa-pencil"></i></button>
-                        <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId); }" class="btn btn-outline-danger"><i class="fas fa-trash"></i></button>
+                        <button @onclick="() => { ShowDialog(descriptor); }" class="btn btn-outline-primary">
+                            <i class="fas fa-pencil"></i>
+                        </button>
+                        <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId); }" class="btn btn-outline-danger">
+                            <i class="fas fa-trash"></i>
+                        </button>
                     </td>
                 }
                 else
                 {
                     <td>
-                        <button disabled class="btn btn-outline-primary"><i class="fas fa-pencil"></i></button>
-                        <button disabled class="btn btn-outline-danger"><i class="fas fa-trash"></i></button>
+                        <button disabled class="btn btn-outline-primary">
+                            <i class="fas fa-pencil"></i>
+                        </button>
+                        <button disabled class="btn btn-outline-danger">
+                            <i class="fas fa-trash"></i>
+                        </button>
                     </td>
                 }
             </tr>
@@ -85,10 +93,10 @@
 </div>
 
 <dialog id="edit-column-dialog">
-    <EditForm  OnValidSubmit="EditColumnFunc" Model="SelectedColDescriptor">
+    <EditForm OnValidSubmit="EditColumnFunc" Model="SelectedColDescriptor">
         <DataAnnotationsValidator/>
         <div class="field">
-            
+
             <label for="name-input">Name</label>
             <InputText id="name-input" @bind-Value="SelectedColDescriptor.ColumnDisplayName" placeholder="Column name"/>
             <ValidationMessage For="@(() => SelectedColDescriptor.ColumnName)"/>
@@ -102,47 +110,78 @@
                 }
             </InputSelect>
             <ValidationMessage For="@(() => SelectedColDescriptor.ColumnValueType)"/>
-            
+
         </div>
         <div class="field field-checkbox">
-            <label for="enabled-input" >Enabled</label>
-            <InputCheckbox id="enabled-input" @bind-Value="SelectedColDescriptor.ColumnEnabled">  </InputCheckbox>
+            <label for="enabled-input">Enabled</label>
+            <InputCheckbox id="enabled-input" @bind-Value="SelectedColDescriptor.ColumnEnabled"> </InputCheckbox>
             <ValidationMessage For="@(() => SelectedColDescriptor.ColumnEnabled)"/>
         </div>
         <div class="field field-checkbox">
-            <label for="visible-input" >Visible</label>
-            <InputCheckbox id="visible-input" @bind-Value="SelectedColDescriptor.ColumnVisible">  </InputCheckbox>
+            <label for="visible-input">Visible</label>
+            <InputCheckbox id="visible-input" @bind-Value="SelectedColDescriptor.ColumnVisible"> </InputCheckbox>
             <ValidationMessage For="@(() => SelectedColDescriptor.ColumnVisible)"/>
         </div>
-    
+
         <button @onclick="() => { success = false; }" value="cancel" formmethod="dialog" class="btn btn-danger">Cancel</button>
         <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Update</button>
-    
+
     </EditForm>
 </dialog>
 <dialog id="add-column-dialog" style="width: 400px">
-        <EditForm OnValidSubmit="AddColumnFunc" Model="newColumn">
-            <DataAnnotationsValidator/>
-            
-            <div class="field">
-                    <label for="column-name-input">Name</label>
-                    <InputText id="column-name-input" @bind-Value="newColumn.ColumnName" class="form-control" placeholder="Column name"/>
-                    <ValidationMessage For="@(() => newColumn.ColumnName)"/>
-            </div>
-            
+    <EditForm OnValidSubmit="AddColumnFunc" Model="newColumn">
+        <DataAnnotationsValidator/>
+
+        <div class="field">
+            <label for="column-name-input">Name</label>
+            <InputText id="column-name-input" @bind-Value="newColumn.ColumnName" class="form-control" placeholder="Column name"/>
+            <ValidationMessage For="@(() => newColumn.ColumnName)"/>
+        </div>
+
         <div class="field field-dropdown">
-                <label for="column-type-input">Type</label>
-                <InputSelect id="column-type-input" class="form-control" @bind-Value="newColumn.ColumnValueType">
-                    @foreach (var item in Enum.GetValues(typeof(ValueTypes)))
+            <label for="column-type-input">Type</label>
+            <InputSelect id="column-type-input" class="form-control" @bind-Value="newColumn.ColumnValueType">
+                @foreach (var item in Enum.GetValues(typeof(ValueTypes)))
+                {
+                    <option value="@item">@item.ToString()</option>
+                }
+            </InputSelect>
+            <ValidationMessage For="@(() => newColumn.ColumnValueType)"/>
+        </div>
+        @if (newColumn.ColumnValueType == ValueTypes.RELATION)
+        {
+            SelectedTableChanged(_tables.FirstOrDefault());
+            <div class="field field-dropdown">
+                <label for="table-input">Reference table</label>
+                <InputSelect id="table-input" class="form-control" ValueChanged="SelectedTableChanged" TValue="string" ValueExpression="() => newColumn.ReferenceTable">
+                    @foreach (var table in _tables)
                     {
-                        <option value="@item">@item.ToString()</option>
+                        <option value="@table">@table</option>
                     }
                 </InputSelect>
-                <ValidationMessage For="@(() => newColumn.ColumnValueType)"/>
+                <ValidationMessage For="@(() => newColumn.ReferenceTable)"/>
             </div>
-            <button @onclick="() => { success = false; HideDialog(); }" value="cancel" type="reset" formmethod="dialog" class="btn btn-danger">Cancel</button>
-            <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Add</button>
-        </EditForm>
+            <div class="field field-dropdown">
+                <label for="table-input">Reference column</label>
+                @if (_referenceColumns is not null && _referenceColumns.Any())
+                {
+                    <InputSelect id="table-input" class="form-control" TValue="Guid" ValueChanged="ReferenceColumnChanged" ValueExpression="() => newColumn.ReferenceColumnGuid">
+                        @foreach (var column in _referenceColumns)
+                        {
+                            <option value="@column.DescriptorId">@column.ColumnDisplayName</option>
+                        }
+                    </InputSelect>
+                    <ValidationMessage For="@(() => newColumn.ReferenceColumnGuid)"/>
+                }
+                else
+                {
+                    <span>Loading...</span>
+                }
+            </div>
+        }
+        <button @onclick="() => { success = false; HideDialog(); }" value="cancel" type="reset" formmethod="dialog" class="btn btn-danger">Cancel</button>
+        <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Add</button>
+    </EditForm>
 </dialog>
 <style>
     
@@ -156,6 +195,10 @@
         public string ColumnName { get; set; }
 
         public ValueTypes ColumnValueType { get; set; }
+
+        public string? ReferenceTable { get; set; } = null;
+        public ColDescriptor? ReferenceColumn { get; set; } = null;
+        public Guid ReferenceColumnGuid { get; set; }
     }
 
     NewColumn newColumn = new NewColumn();
@@ -165,19 +208,23 @@
         JSRuntime.InvokeVoidAsync("HideDialog", "add-column-dialog");
         if (success)
         {
-            EntityService.AddColumn(newColumn.ColumnName, newColumn.ColumnValueType);
+            EntityService.AddColumn(newColumn.ColumnName, newColumn.ColumnValueType, newColumn.ReferenceTable, newColumn.ReferenceColumn?.ColumnName);
         }
         _colDescriptors = EntityService.GetTableSpec();
     }
-    IEnumerable<ColDescriptor> _colDescriptors;
 
+    IEnumerable<ColDescriptor>? _colDescriptors;
+
+    private IEnumerable<string>? _tables;
+    private IEnumerable<ColDescriptor>? _referenceColumns;
     ColDescriptor SelectedColDescriptor = new();
-    
+
     public bool success { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
         _colDescriptors = EntityService.GetTableSpec();
+        _tables = EntityService.GetTableNames();
     }
 
     private void RemoveColumnFunc(Guid id)
@@ -185,10 +232,11 @@
         EntityService.RemoveColumn(id);
         _colDescriptors = EntityService.GetTableSpec();
     }
-    
-    
+
+
     private void AddDialog()
     {
+        newColumn = new NewColumn();
         JSRuntime.InvokeVoidAsync("ShowDialog", "add-column-dialog");
     }
 
@@ -212,6 +260,18 @@
     private void HideDialog()
     {
         JSRuntime.InvokeVoidAsync("HideDialog", "add-column-dialog");
+    }
+
+    private void SelectedTableChanged(string value)
+    {
+        newColumn.ReferenceTable = value;
+        _referenceColumns = new List<ColDescriptor>();
+        _referenceColumns = EntityService.GetColumns(value);
+    }
+
+    private void ReferenceColumnChanged(Guid value)
+    {
+        newColumn.ReferenceColumn = _referenceColumns?.FirstOrDefault(x => x.DescriptorId == value);
     }
 
 }

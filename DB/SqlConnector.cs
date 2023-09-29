@@ -24,6 +24,13 @@ public class SqlConnector:ISqlConnector
             connection.Open();
 
             using var command = new SqlCommand(query, connection);
+            if (parameters != null)
+            {
+                foreach (var param in parameters)
+                {
+                    command.Parameters.AddWithValue(param.Key, param.Value);
+                }
+            }
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {

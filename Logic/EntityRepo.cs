@@ -21,6 +21,120 @@ public class EntityRepo:IEntityRepo
         _entityTableSpecAsOfSelected = GetEntityTableSpec(SelectedDateTime);
     }
 
+    public IEnumerable<string> GetTableNames()
+    {
+        using var connection = _sqlConnector.SqlConnection;
+        connection.Open();
+        var query = "SELECT * FROM sys.Tables WHERE is_ms_shipped = 0 AND history_table_id IS NOT NULL AND name NOT LIKE '%Spec'";
+        using var command = new SqlCommand(query, connection);
+        using var reader = command.ExecuteReader();
+        var result = new List<string>();
+        while (reader.Read())
+        {
+            result.Add(reader.GetValue(0) as string ?? "");
+        }
+        connection.Close();
+        return result;
+    }
+
+    public IEnumerable<ColDescriptor> GetColumnsFromTable(string tableName)
+    {
+        using var connection = _sqlConnector.SqlConnection;
+        connection.Open();
+        var query =  $"SELECT * FROM [dbo].[{tableName}Spec] WHERE ColumnEnabled = 1";
+        using var command = new SqlCommand(query, connection);
+        using var reader = command.ExecuteReader();
+        var result = new List<Dictionary<string, object>>();
+        while (reader.Read())
+        {
+            var row = new Dictionary<string, object>();
+            for (int i = 0; i < reader.FieldCount; i++)
+            {
+                row[reader.GetName(i)] = reader.GetValue(i);
+            }
+            result.Add(row);
+        }
+        connection.Close();
+        var colDescriptors = new List<ColDescriptor>();
+        foreach (var col in result)
+        {
+            var descriptor = new ColDescriptor();
+            foreach (var kvp in col)
+            {
+                switch (kvp.Key)
+                {
+                    case "Id" when kvp.Value is Guid id:
+                        descriptor.DescriptorId = id;
+                        break;
+                    case "ColumnName" when kvp.Value is string columnName:
+                        descriptor.ColumnName = columnName;
+                        break;
+                    case "ColumnValueType":
+                        if (Int32.TryParse(kvp.Value as string, out var columnType))
+                        {
+                            descriptor.ColumnValueType = (ValueTypes)columnType;
+                        }
+                        break;
+                    case "ColumnDisplayName" when kvp.Value is string columnDisplayName:
+                        descriptor.ColumnDisplayName = columnDisplayName;
+                        break;
+                    case "ColumnEnabled" when kvp.Value is bool columnEnabled:
+                        descriptor.ColumnEnabled = columnEnabled;
+                        break;
+                    case "ColumnVisible" when kvp.Value is bool columnVisible:
+                        descriptor.ColumnVisible = columnVisible;
+                        break;
+                    case "ColumnEditable" when kvp.Value is bool columnEditable:
+                        descriptor.ColumnEditable = columnEditable;
+                        break;
+                    case "ValueEditable" when kvp.Value is bool valueEditable:
+                        descriptor.ValueEditable = valueEditable;
+                        break;
+                }
+            }
+            colDescriptors.Add(descriptor);
+        }
+        return colDescriptors;
+    }
+
+    public List<Dictionary<ColDescriptor, object>> GetRelationData(ColDescriptor colDescriptor)
+    {
+        var query = $@"
+SELECT 
+    OBJECT_NAME(f.parent_object_id) AS TableName,
+    COL_NAME(fc.parent_object_id, fc.parent_column_id) AS ColumnName,
+    OBJECT_NAME(f.referenced_object_id) AS ReferenceTableName,
+    COL_NAME(fc.referenced_object_id, fc.referenced_column_id) AS ReferenceColumnName,
+    f.name AS ForeignKeyName
+FROM 
+    sys.foreign_keys AS f
+INNER JOIN 
+    sys.foreign_key_columns AS fc 
+    ON f.OBJECT_ID = fc.constraint_object_id
+WHERE 
+    OBJECT_NAME(f.parent_object_id) = 'Entity' 
+    AND SCHEMA_NAME(f.schema_id) = 'dbo'
+    AND COL_NAME(fc.parent_object_id, fc.parent_column_id) = @columnName
+ORDER BY 
+    TableName, 
+    ColumnName, 
+    ReferenceTableName, 
+    ReferenceColumnName;";
+        
+        var constraintResult = _sqlConnector.GetRow(query, new Dictionary<string, object>()
+        {
+            {"columnName", colDescriptor.ColumnName}
+        });
+        if (constraintResult is null) throw new Exception();
+        var otherTableSpec = GetTableSpec(constraintResult["ReferenceTableName"] as string ?? "");
+        var otherTableSelectedColumns = string.Join(", ", otherTableSpec.Select(x => x.ColumnName));
+
+        var dataQuery = $"SELECT {otherTableSelectedColumns} FROM dbo.[{constraintResult["ReferenceTableName"]}]";
+        var result = _sqlConnector.GetList(dataQuery);
+        var rows = result.Select(resultRow => resultRow.ToDictionary(col => otherTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
+        return rows;
+    }
+
     public void UpdateDateSelectedTime(DateTime time)
     {
         SelectedDateTime = time;
@@ -159,7 +273,7 @@ public class EntityRepo:IEntityRepo
     public List<Dictionary<ColDescriptor, object>> GetRangeOfEntities(int start, int end)
     {
         var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}]"));
-        var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity]) Select {selectedColumns} From Records WHERE RowNumber between {start} and {end} ORDER BY ValidFrom";
+        var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom, entity_Name_1) AS 'RowNumber' FROM [dbo].[Entity]) Select {selectedColumns} From Records WHERE RowNumber between {start} and {end} ORDER BY ValidFrom";
         var result =_sqlConnector.GetList(query);
 
         var rows = result.Select(resultRow => resultRow.ToDictionary(col => _entityTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
@@ -191,7 +305,7 @@ public class EntityRepo:IEntityRepo
         return rows;
     }
     
-    public void AddColumn(string columnName, ValueTypes columnValueType)
+    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable =null, string? referenceColumn = null )
     {
         var datatype = columnValueType switch
         {
@@ -208,6 +322,8 @@ public class EntityRepo:IEntityRepo
             ValueTypes.PERCENTAGE => "decimal(18,2)",
             ValueTypes.DATETIME => "datetime2(7)",
             ValueTypes.TIME => "time(7)",
+            ValueTypes.RELATION => "uniqueidentifier",
+            _ => throw new ArgumentOutOfRangeException(nameof(columnValueType), columnValueType, null)
         };
         
         using var connection = _sqlConnector.SqlConnection;
@@ -234,8 +350,16 @@ public class EntityRepo:IEntityRepo
         }
         var internalColumnName = $"entity_{columnName}_{counter}";
 
-        var insertQuery = $"ALTER TABLE [dbo].[Entity] ADD [{internalColumnName}] {datatype}";
-        const string specQuery = "INSERT INTO [dbo].[EntitySpec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled) VALUES (@internalColumnName, @columnName, @columnValueType, 1)";
+        var insertQuery = $"ALTER TABLE [dbo].[Entity] ADD [{internalColumnName}] {datatype};";
+
+        if (columnValueType == ValueTypes.RELATION)
+        {
+            if(referenceColumn is null || referenceTable is null)
+                throw new ArgumentNullException(nameof(referenceColumn), "Reference column and table must be specified");
+            insertQuery += $"ALTER TABLE [dbo].[Entity] ADD CONSTRAINT [FK_entity_{referenceTable}] FOREIGN KEY ([{internalColumnName}]) REFERENCES [dbo].[{referenceTable}] ([{referenceColumn}]);";
+        }
+        
+        const string specQuery = "INSERT INTO [dbo].[EntitySpec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ValueEditable, ColumnEditable, ColumnVisible) VALUES (@internalColumnName, @columnName, @columnValueType, 1, 1, 1, 1);";
         try
         {
             command.CommandText = insertQuery;
@@ -261,11 +385,11 @@ public class EntityRepo:IEntityRepo
         }
     }
 
-    public IEnumerable<ColDescriptor> GetTableSpec()
+    public IEnumerable<ColDescriptor> GetTableSpec(string tableName = "Entity")
     {
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
-        var query = "SELECT * FROM [dbo].[EntitySpec] ORDER BY ValidFrom";
+        var query = $"SELECT * FROM [dbo].[{tableName}Spec] ORDER BY ValidFrom";
         using var command = new SqlCommand(query, connection);
         using var reader = command.ExecuteReader();
         var result = new List<Dictionary<string, object>>();
