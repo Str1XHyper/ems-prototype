@@ -150,10 +150,9 @@
         </div>
         @if (newColumn.ColumnValueType == ValueTypes.RELATION)
         {
-            SelectedTableChanged(_tables.FirstOrDefault());
             <div class="field field-dropdown">
                 <label for="table-input">Reference table</label>
-                <InputSelect id="table-input" class="form-control" ValueChanged="SelectedTableChanged" TValue="string" ValueExpression="() => newColumn.ReferenceTable">
+                <InputSelect id="table-input" class="form-control" Value="@(newColumn.ReferenceTable)" ValueChanged="SelectedTableChanged" TValue="string" ValueExpression="() => newColumn.ReferenceTable">
                     @foreach (var table in _tables)
                     {
                         <option value="@table">@table</option>
@@ -196,7 +195,7 @@
 
         public ValueTypes ColumnValueType { get; set; }
 
-        public string? ReferenceTable { get; set; } = null;
+        public string? ReferenceTable { get; set; } = "";
         public ColDescriptor? ReferenceColumn { get; set; } = null;
         public Guid ReferenceColumnGuid { get; set; }
     }
@@ -266,7 +265,7 @@
     {
         newColumn.ReferenceTable = value;
         _referenceColumns = new List<ColDescriptor>();
-        _referenceColumns = EntityService.GetColumns(value);
+        _referenceColumns = EntityService.GetColumnsSelectableForRelations(value);
     }
 
     private void ReferenceColumnChanged(Guid value)

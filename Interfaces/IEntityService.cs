@@ -5,11 +5,10 @@ namespace Interfaces;
 
 public interface IEntityService
 {
-    public List<Dictionary<ColDescriptor, object>> GetAllEntities();
-    List<Dictionary<ColDescriptor, object>> GetAllEntitiesByDate(DateTime dateTime);
     void UpdateDateSelectedTime(DateTime time);
     DateTime SelectedDateTime { get; set; }
-    
+    string SelectedTable { get; set; }
+
     public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable =null, string? referenceColumn = null );
     IEnumerable<ColDescriptor> GetTableSpec();
     void RemoveColumn(Guid id);
@@ -22,4 +21,6 @@ public interface IEntityService
     IEnumerable<string> GetTableNames();
     IEnumerable<ColDescriptor> GetColumns(string value);
     List<Dictionary<ColDescriptor, object>> GetRelationData(ColDescriptor colDescriptor);
+    IEnumerable<ColDescriptor> GetColumnsSelectableForRelations(string tableName);
+    IEnumerable<string> GetAllTableNames();
 }

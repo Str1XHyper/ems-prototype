@@ -12,6 +12,7 @@ public class EntityRepo:IEntityRepo
     IEnumerable<ColDescriptor> _entityTableSpec;
     
     public DateTime SelectedDateTime { get; private set; } = DateTime.Now;
+    public string SelectedTable { get; private set; } = "Entity";
     private IEnumerable<ColDescriptor> _entityTableSpecAsOfSelected;
 
     public EntityRepo(ISqlConnector sqlConnector)
@@ -20,8 +21,7 @@ public class EntityRepo:IEntityRepo
         _entityTableSpec = GetEntityTableSpec();
         _entityTableSpecAsOfSelected = GetEntityTableSpec(SelectedDateTime);
     }
-
-    public IEnumerable<string> GetTableNames()
+    public IEnumerable<string> GetAllTableNames()
     {
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
@@ -37,8 +37,99 @@ public class EntityRepo:IEntityRepo
         return result;
     }
 
+    public IEnumerable<string> GetTableNames()
+    {
+        using var connection = _sqlConnector.SqlConnection;
+        connection.Open();
+        var query = "SELECT * FROM sys.Tables WHERE is_ms_shipped = 0 AND history_table_id IS NOT NULL AND name NOT LIKE '%Spec' AND NOT name = @name";
+        using var command = new SqlCommand(query, connection);
+        command.Parameters.AddWithValue("name", SelectedTable);
+        using var reader = command.ExecuteReader();
+        var result = new List<string>();
+        while (reader.Read())
+        {
+            result.Add(reader.GetValue(0) as string ?? "");
+        }
+        connection.Close();
+        return result;
+    }
+
+    public IEnumerable<ColDescriptor> GetColumnsSelectableForRelations(string tableName)
+    {
+        var query = @"
+SELECT 
+    COLUMN_NAME, 
+    CONSTRAINT_TYPE
+FROM 
+    INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS KCU
+JOIN 
+    INFORMATION_SCHEMA.TABLE_CONSTRAINTS AS TC
+ON 
+    KCU.TABLE_NAME = TC.TABLE_NAME 
+    AND KCU.TABLE_SCHEMA = TC.TABLE_SCHEMA
+    AND KCU.CONSTRAINT_NAME = TC.CONSTRAINT_NAME
+WHERE 
+    KCU.TABLE_NAME = @tableName
+    AND TC.CONSTRAINT_TYPE IN ('PRIMARY KEY')
+ORDER BY 
+    CONSTRAINT_TYPE, COLUMN_NAME;";
+        var result = _sqlConnector.GetList(query, new Dictionary<string, object>()
+        {
+            {"tableName", tableName}
+        });
+        
+        var descriptorQuery =  $"SELECT * FROM [dbo].[{tableName}Spec] WHERE ColumnEnabled = 1 AND ColumnName = @columnName";
+        var ColumnName = result.First()["COLUMN_NAME"];
+        result = _sqlConnector.GetList(descriptorQuery, new Dictionary<string, object>()
+        {
+            { "columnName", ColumnName }
+        });
+        var colDescriptors = new List<ColDescriptor>();
+        foreach (var col in result)
+        {
+            var descriptor = new ColDescriptor();
+            foreach (var kvp in col)
+            {
+                switch (kvp.Key)
+                {
+                    case "Id" when kvp.Value is Guid id:
+                        descriptor.DescriptorId = id;
+                        break;
+                    case "ColumnName" when kvp.Value is string columnName:
+                        descriptor.ColumnName = columnName;
+                        break;
+                    case "ColumnValueType":
+                        if (Int32.TryParse(kvp.Value as string, out var columnType))
+                        {
+                            descriptor.ColumnValueType = (ValueTypes)columnType;
+                        }
+                        break;
+                    case "ColumnDisplayName" when kvp.Value is string columnDisplayName:
+                        descriptor.ColumnDisplayName = columnDisplayName;
+                        break;
+                    case "ColumnEnabled" when kvp.Value is bool columnEnabled:
+                        descriptor.ColumnEnabled = columnEnabled;
+                        break;
+                    case "ColumnVisible" when kvp.Value is bool columnVisible:
+                        descriptor.ColumnVisible = columnVisible;
+                        break;
+                    case "ColumnEditable" when kvp.Value is bool columnEditable:
+                        descriptor.ColumnEditable = columnEditable;
+                        break;
+                    case "ValueEditable" when kvp.Value is bool valueEditable:
+                        descriptor.ValueEditable = valueEditable;
+                        break;
+                }
+            }
+            colDescriptors.Add(descriptor);
+        }
+        return colDescriptors;
+
+    }
+
     public IEnumerable<ColDescriptor> GetColumnsFromTable(string tableName)
     {
+        if (string.IsNullOrEmpty(tableName)) return null;
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
         var query =  $"SELECT * FROM [dbo].[{tableName}Spec] WHERE ColumnEnabled = 1";
@@ -135,6 +226,13 @@ ORDER BY
         return rows;
     }
 
+    public void UpdateSelectedTable(string value)
+    {
+        SelectedTable = value;
+        _entityTableSpec = GetEntityTableSpec();
+        _entityTableSpecAsOfSelected = GetEntityTableSpec(SelectedDateTime);
+    }
+
     public void UpdateDateSelectedTime(DateTime time)
     {
         SelectedDateTime = time;
@@ -147,8 +245,8 @@ ORDER BY
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
         var query = asofDateTime is not null ? 
-            "SELECT * FROM [dbo].[EntitySpec] FOR SYSTEM_TIME AS OF @dateTime WHERE ColumnEnabled = 1 ORDER BY ValidFrom" : 
-            "SELECT * FROM [dbo].[EntitySpec] WHERE ColumnEnabled = 1  ORDER BY ValidFrom";
+            $"SELECT * FROM [dbo].[{SelectedTable}Spec] FOR SYSTEM_TIME AS OF @dateTime WHERE ColumnEnabled = 1 ORDER BY ValidFrom" : 
+            $"SELECT * FROM [dbo].[{SelectedTable}Spec] WHERE ColumnEnabled = 1  ORDER BY ValidFrom";
         using var command = new SqlCommand(query, connection);
         if (asofDateTime is not null)
         {
@@ -210,7 +308,7 @@ ORDER BY
 
     public int GetTotalEntityCount()
     {
-        var query = "SELECT Count([entity_Id_1]) FROM [dbo].[Entity]";
+        var query = $"SELECT Count(*) FROM [dbo].[{SelectedTable}]";
         
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
@@ -236,7 +334,7 @@ ORDER BY
             var parameters = new Dictionary<string, object>();
             parameters.Add("dateTime", SelectedDateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
             var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName}]"));
-            var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity] For System_Time As Of @dateTime) Select {selectedColumns} From Records WHERE RowNumber between {requestStartIndex} and {requestCount}  ORDER BY ValidFrom ";
+            var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[{SelectedTable}] For System_Time As Of @dateTime) Select {selectedColumns} From Records WHERE RowNumber between {requestStartIndex} and {requestCount}  ORDER BY ValidFrom ";
             var result = _sqlConnector.GetList(query, parameters).ToList();
 
             var rows = result.Select(resultRow => resultRow.ToDictionary(col => _entityTableSpecAsOfSelected.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
@@ -252,7 +350,7 @@ ORDER BY
 
     public int GetEntityCountByDate()
     {
-        var query = "SELECT Count([entity_Id_1]) FROM [dbo].[Entity] For System_Time As Of @dateTime";
+        var query = $"SELECT Count(*) FROM [dbo].[{SelectedTable}] For System_Time As Of @dateTime";
         
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
@@ -273,7 +371,7 @@ ORDER BY
     public List<Dictionary<ColDescriptor, object>> GetRangeOfEntities(int start, int end)
     {
         var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}]"));
-        var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom, entity_Name_1) AS 'RowNumber' FROM [dbo].[Entity]) Select {selectedColumns} From Records WHERE RowNumber between {start} and {end} ORDER BY ValidFrom";
+        var query = $"WITH Records as (SELECT *, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[{SelectedTable}]) Select {selectedColumns} From Records WHERE RowNumber between {start} and {end} ORDER BY ValidFrom";
         var result =_sqlConnector.GetList(query);
 
         var rows = result.Select(resultRow => resultRow.ToDictionary(col => _entityTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
@@ -284,7 +382,7 @@ ORDER BY
     public List<Dictionary<ColDescriptor, object>> GetAllEntities()
     {
         var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}]"));
-        var query = $"WITH Records as (SELECT {selectedColumns}, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[Entity]) Select * From Records WHERE RowNumber between 1 and 1000";
+        var query = $"WITH Records as (SELECT {selectedColumns}, ROW_NUMBER() OVER ( ORDER BY ValidFrom) AS 'RowNumber' FROM [dbo].[{SelectedTable}]) Select * From Records WHERE RowNumber between 1 and 1000";
         var result =_sqlConnector.GetList(query);
 
         var rows = result.Select(resultRow => resultRow.SkipLast(1).ToDictionary(col => _entityTableSpec.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
@@ -292,21 +390,11 @@ ORDER BY
         return rows;
     }
     
-    public List<Dictionary<ColDescriptor, object>> GetAllEntitiesAsOfDateTime(DateTime dateTime)
-    {
-        var parameters = new Dictionary<string, object>();
-        parameters.Add("dateTime",SelectedDateTime.ToUniversalTime().ToString("u").TrimEnd('Z'));
-        var selectedColumns = string.Join(", ", _entityTableSpecAsOfSelected.Select(x => $"[{x.ColumnName}]"));
-        var query = $"SELECT {selectedColumns} FROM [dbo].[Entity] For System_Time As Of @dateTime";
-        var result =_sqlConnector.GetList(query,parameters);
-        
-        
-        var rows = result.Select(resultRow => resultRow.ToDictionary(col => _entityTableSpecAsOfSelected.First(x => x.ColumnName == col.Key), col => col.Value)).ToList();
-        return rows;
-    }
+
     
-    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable =null, string? referenceColumn = null )
+    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable =null, string? referenceColumn = null)
     {
+        var tableName = SelectedTable.ToLower();
         var datatype = columnValueType switch
         {
             ValueTypes.NUMBER => "int",
@@ -341,25 +429,25 @@ ORDER BY
         command.Transaction = transaction;
         
         var counter = 1;
-        if (_entityTableSpec.Any(x => x.ColumnName.StartsWith($"entity_{columnName}")))
+        if (_entityTableSpec.Any(x => x.ColumnName.StartsWith($"{tableName}_{columnName}")))
         {
             var highest = _entityTableSpec
-                .Where(x => x.ColumnName.StartsWith($"entity_{columnName}"))
+                .Where(x => x.ColumnName.StartsWith($"{tableName}_{columnName}"))
                 .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
             counter = highest + 1;
         }
-        var internalColumnName = $"entity_{columnName}_{counter}";
+        var internalColumnName = $"{tableName}_{columnName}_{counter}";
 
-        var insertQuery = $"ALTER TABLE [dbo].[Entity] ADD [{internalColumnName}] {datatype};";
+        var insertQuery = $"ALTER TABLE [dbo].[{tableName}] ADD [{internalColumnName}] {datatype};";
 
         if (columnValueType == ValueTypes.RELATION)
         {
             if(referenceColumn is null || referenceTable is null)
                 throw new ArgumentNullException(nameof(referenceColumn), "Reference column and table must be specified");
-            insertQuery += $"ALTER TABLE [dbo].[Entity] ADD CONSTRAINT [FK_entity_{referenceTable}] FOREIGN KEY ([{internalColumnName}]) REFERENCES [dbo].[{referenceTable}] ([{referenceColumn}]);";
+            insertQuery += $"ALTER TABLE [dbo].[{tableName}] ADD CONSTRAINT [FK_{tableName}_{referenceTable}] FOREIGN KEY ([{internalColumnName}]) REFERENCES [dbo].[{referenceTable}] ([{referenceColumn}]);";
         }
         
-        const string specQuery = "INSERT INTO [dbo].[EntitySpec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ValueEditable, ColumnEditable, ColumnVisible) VALUES (@internalColumnName, @columnName, @columnValueType, 1, 1, 1, 1);";
+        var specQuery = $"INSERT INTO [dbo].[{tableName}Spec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ValueEditable, ColumnEditable, ColumnVisible) VALUES (@internalColumnName, @columnName, @columnValueType, 1, 1, 1, 1);";
         try
         {
             command.CommandText = insertQuery;
@@ -482,6 +570,7 @@ ORDER BY
 
     public void UpdateColumn(ColDescriptor selectedColDescriptor)
     {
+        var tableName = SelectedTable.ToLower();
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
 
@@ -506,7 +595,7 @@ ORDER BY
         {
             if (selectedColDescriptor.ColumnValueType == original.ColumnValueType)
             {
-                command.CommandText = "Update [dbo].[EntitySpec] SET ColumnEnabled = @columnEnabled, ColumnDisplayName = @columnDisplayName, ColumnVisible = @columnVisible, ColumnEditable = @columnEditable, ValueEditable = @valueEditable WHERE Id = @id";
+                command.CommandText = $"Update [dbo].[{tableName}Spec] SET ColumnEnabled = @columnEnabled, ColumnDisplayName = @columnDisplayName, ColumnVisible = @columnVisible, ColumnEditable = @columnEditable, ValueEditable = @valueEditable WHERE Id = @id";
                 command.Parameters.AddWithValue("id", selectedColDescriptor.DescriptorId);
                 command.Parameters.AddWithValue("columnEnabled", selectedColDescriptor.ColumnEnabled);
                 command.Parameters.AddWithValue("columnDisplayName", selectedColDescriptor.ColumnDisplayName);
@@ -536,14 +625,14 @@ ORDER BY
                     _ => throw new ArgumentOutOfRangeException()
                 };
                 var counter = 1;
-                if (spec.Any(x => x.ColumnName.StartsWith($"entity_{selectedColDescriptor.ColumnDisplayName}")))
+                if (spec.Any(x => x.ColumnName.StartsWith($"{tableName}_{selectedColDescriptor.ColumnDisplayName}")))
                 {
                     var highest = _entityTableSpec
-                        .Where(x => x.ColumnName.StartsWith($"entity_{selectedColDescriptor.ColumnDisplayName}"))
+                        .Where(x => x.ColumnName.StartsWith($"{tableName}_{selectedColDescriptor.ColumnDisplayName}"))
                         .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
                     counter = highest + 1;
                 }
-                var internalColumnName = $"entity_{selectedColDescriptor.ColumnDisplayName}_{counter}";
+                var internalColumnName = $"{tableName}_{selectedColDescriptor.ColumnDisplayName}_{counter}";
                 command.CommandText = "UPDATE [dbo].[EntitySpec] SET ColumnEnabled = 0 WHERE Id = @id";
                 command.Parameters.AddWithValue("id", selectedColDescriptor.DescriptorId);
                 command.ExecuteNonQuery();
@@ -575,9 +664,10 @@ ORDER BY
 
     public void UpdateRow(Dictionary<ColDescriptor, object> row)
     {
-        var setters = row.Keys.Where(x => x.ColumnName != "entity_Id_1").Aggregate("", (current, key) => current + $"[{key.ColumnName}] = @{key.ColumnName.Replace(' ', '_')}, ");
+        var tableName = SelectedTable.ToLower();
+        var setters = row.Keys.Where(x => x.ColumnName != $"{tableName}_Id_1").Aggregate("", (current, key) => current + $"[{key.ColumnName}] = @{key.ColumnName.Replace(' ', '_')}, ");
         setters = setters.TrimEnd(',', ' ');
-        var query = $"Update [dbo].[Entity] SET {setters} WHERE [entity_Id_1] = @entity_Id_1";
+        var query = $"Update [dbo].[{SelectedTable}] SET {setters} WHERE [{tableName}_Id_1] = @{tableName}_Id_1";
         
         
         using var connection = _sqlConnector.SqlConnection;
