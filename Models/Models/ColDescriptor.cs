@@ -1,6 +1,6 @@
 ﻿using Models.Enums;
 
-namespace Models.Structs;
+namespace Models.Models;
 
 public class ColDescriptor
 {

@@ -1,55 +1,59 @@
 ﻿@page "/editdata"
 @using Interfaces
 @using Models.Enums
-@using Models.Structs
+@using Models.Models
 @inject IEntityService EntityService
 @inject IJSRuntime JSRuntime
-<h1>Edit data</h1>
-    <div style="height: 70vh; width: 80vw">
-        <div class="d-flex flex-wrap flex-column card" style="max-height: 100%; overflow: auto; max-width: 100%;">
-            <table class="result-table">
+<div class="d-flex flex-row justify-space-between">
+    <h1>Edit data</h1>
 
-                <colgroup>
+    <button @onclick="() => { AddDialog(); }" class="btn btn-success">Add</button>
+</div>
+<div style="height: 70vh; width: 80vw">
+    <div class="d-flex flex-wrap flex-column card" style="max-height: 100%; overflow: auto; max-width: 100%;">
+        <table class="result-table">
 
-                    @foreach (var col in cols.Where(x => x.ColumnVisible))
+            <colgroup>
+
+                @foreach (var col in cols.Where(x => x.ColumnVisible))
+                {
+                    <col>
+                }
+                <col style="width: 50px">
+            </colgroup>
+            <tr >
+                @foreach (var col in cols.Where(x => x.ColumnVisible))
+                {
+                    <th class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@col.ColumnDisplayName</th>
+                }
+                <th class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">Actions</th>
+            </tr>
+            <Virtualize @ref="DefaultVirtualizer" OverscanCount="20" ItemsProvider="GetEntitiesScoped" ItemSize="24" Context="row">
+                <tr style="height: 24px" class="border-bottom">
+                    @foreach (var item in row.Where(x => x.Key.ColumnVisible))
                     {
-                        <col>
+                        <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
                     }
-                    <col style="width: 50px">
-                </colgroup>
-                <tr >
-                    @foreach (var col in cols.Where(x => x.ColumnVisible))
-                    {
-                        <th class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@col.ColumnDisplayName</th>
-                    }
-                    <th class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">Actions</th>
+                    <td>
+                        <button @onclick="() => { ShowDialog(row); }" class="btn btn-outline-primary">
+                            <i class="fas fa-pencil"></i>
+                        </button>
+                        @* <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId);}" class="btn btn-outline-danger"><i class="fas fa-trash"></i></button> *@
+                    </td>
                 </tr>
-                <Virtualize @ref="DefaultVirtualizer" OverscanCount="20" ItemsProvider="GetEntitiesScoped" ItemSize="24" Context="row">
-                    <tr style="height: 24px" class="border-bottom">
-                        @foreach (var item in row.Where(x => x.Key.ColumnVisible))
-                        {
-                            <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
-                        }
-                        <td>
-                            <button @onclick="() => { ShowDialog(row); }" class="btn btn-outline-primary">
-                                <i class="fas fa-pencil"></i>
-                            </button>
-                            @* <button @onclick="() => { RemoveColumnFunc(descriptor.DescriptorId);}" class="btn btn-outline-danger"><i class="fas fa-trash"></i></button> *@
-                        </td>
-                    </tr>
-                </Virtualize>
+            </Virtualize>
 
-            </table>
-        </div>
-        <div class="field field-dropdown" style="max-width: 400px">
+        </table>
+    </div>
+    <div class="field field-dropdown" style="max-width: 400px">
         <InputSelect Value="EntityService.SelectedTable" ValueExpression="() => EntityService.SelectedTable" TValue="string" ValueChanged="SelectedTableChanged">
             @foreach (var table in Tables)
             {
                 <option value="@table">@table</option>
             }
         </InputSelect>
-        </div>
     </div>
+</div>
 <dialog id="edit-row-dialog" style="width: 400px">
     <EditForm OnValidSubmit="EditRow" Model="SelectedRow">
         @foreach (var kvp in SelectedRow.Where(x => x.Key.ValueEditable))
@@ -57,51 +61,122 @@
             @if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
             {
                 <div class="field field-dropdown">
-                <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
-                <select id="@kvp.Key.ColumnName" style="width: 100%"  @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
-                    @foreach (var row in _relations[kvp.Key])
-                    {
-                        <option value="@row.First(x => x.Key.ColumnName == "person_Id_1").Value">@row.FirstOrDefault(x => x.Key.ColumnName.Contains("Name")).Value</option>
-                    }
-                </select>
-                    
-                </div>   
+                    <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                    <select  id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                        @if (kvp.Value == null)
+                        {
+                            <option disabled selected value="@(new Guid())"> -- select an option -- </option>
+                        }
+                        @foreach (var row in _relations[kvp.Key])
+                        {
+                            if (kvp.Value?.ToString() == string.Join(" ", row.Where(x => !x.Key.ColumnName.EndsWith("Id_1")).Select(x => x.Value.ToString())) || kvp.Value?.ToString() == row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value.ToString())
+                            {
+                                SelectedRow[kvp.Key] = row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value.ToString();
+                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value" selected>@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
+                            }
+                            else
+                            {
+                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
+                            }
+                        }
+                    </select>
+
+                </div>
             }
             else
             {
-            
-            <div class="field ">
-                <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
-                @{
-                    var type = kvp.Key.ColumnValueType switch{
+                <div class="field ">
+                    <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                    @{
+                        var type = kvp.Key.ColumnValueType switch{
                         
-                        ValueTypes.NUMBER => "number",
-                        ValueTypes.STRING => "text",
-                        ValueTypes.DATE => "date",
-                        ValueTypes.BOOLEAN => "checkbox",
-                        ValueTypes.GUID => "text",
-                        ValueTypes.EMAIL => "email",
-                        ValueTypes.PHONE => "tel",
-                        ValueTypes.URL => "url",
-                        ValueTypes.PASSWORD => "password",
-                        ValueTypes.CURRENCY => "number",
-                        ValueTypes.PERCENTAGE => "number",
-                        ValueTypes.DATETIME => "datetime-local",
-                        ValueTypes.TIME => "time",
-                        _ => throw new ArgumentOutOfRangeException()
+                            ValueTypes.NUMBER => "number",
+                            ValueTypes.STRING => "text",
+                            ValueTypes.DATE => "date",
+                            ValueTypes.BOOLEAN => "checkbox",
+                            ValueTypes.GUID => "text",
+                            ValueTypes.EMAIL => "email",
+                            ValueTypes.PHONE => "tel",
+                            ValueTypes.URL => "url",
+                            ValueTypes.PASSWORD => "password",
+                            ValueTypes.CURRENCY => "number",
+                            ValueTypes.PERCENTAGE => "number",
+                            ValueTypes.DATETIME => "datetime-local",
+                            ValueTypes.TIME => "time",
+                            _ => throw new ArgumentOutOfRangeException()
                         
-                        };
-                    if (kvp.Key.ColumnValueType == ValueTypes.DATETIME)
-                    {
-                        <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@((kvp.Value as DateTime? ?? DateTime.Now).ToString("s"))" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
+                            };
+                        if (kvp.Key.ColumnValueType == ValueTypes.DATETIME)
+                        {
+                            <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@((kvp.Value as DateTime? ?? DateTime.Now).ToString("s"))" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
+                        }
+                        else
+                        {
+                            <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@kvp.Value" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
+                        }
                     }
-                    else
-                    {
-                        <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@kvp.Value" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
+
+                </div>
+            }
+        }
+        <button @onclick="() => { success = false; }" value="cancel" formmethod="dialog" class="btn btn-danger">Cancel</button>
+        <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Update</button>
+
+    </EditForm>
+</dialog>
+
+<dialog id="add-row-dialog" style="width: 400px">
+    <EditForm OnValidSubmit="AddRow" Model="SelectedRow">
+        @foreach (var kvp in SelectedRow.Where(x => x.Key.ValueEditable))
+        {
+            @if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
+            {
+                <div class="field field-dropdown">
+                    <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                    <select id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                        <option disabled selected value="@(new Guid())"> -- select an option -- </option>
+                        @foreach (var row in _relations[kvp.Key])
+                        {
+                            <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
+                        }
+                    </select>
+
+                </div>
+            }
+            else
+            {
+                <div class="field ">
+                    <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                    @{
+                        var type = kvp.Key.ColumnValueType switch{
+                        
+                            ValueTypes.NUMBER => "number",
+                            ValueTypes.STRING => "text",
+                            ValueTypes.DATE => "date",
+                            ValueTypes.BOOLEAN => "checkbox",
+                            ValueTypes.GUID => "text",
+                            ValueTypes.EMAIL => "email",
+                            ValueTypes.PHONE => "tel",
+                            ValueTypes.URL => "url",
+                            ValueTypes.PASSWORD => "password",
+                            ValueTypes.CURRENCY => "number",
+                            ValueTypes.PERCENTAGE => "number",
+                            ValueTypes.DATETIME => "datetime-local",
+                            ValueTypes.TIME => "time",
+                            _ => throw new ArgumentOutOfRangeException()
+                        
+                            };
+                        if (kvp.Key.ColumnValueType == ValueTypes.DATETIME)
+                        {
+                            <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@((kvp.Value as DateTime? ?? DateTime.Now).ToString("s"))" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
+                        }
+                        else
+                        {
+                            <input id="@kvp.Key.ColumnName" style="width: 100%" type="@type" value="@kvp.Value" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }"/>
+                        }
                     }
-                }
-                
-            </div>
+
+                </div>
             }
         }
         <button @onclick="() => { success = false; }" value="cancel" formmethod="dialog" class="btn btn-danger">Cancel</button>
@@ -134,7 +209,7 @@
         {
             if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
             {
-                _relations.Add(kvp.Key,EntityService.GetRelationData(kvp.Key));
+                _relations.Add(kvp.Key, EntityService.GetRelationData(kvp.Key));
             }
             SelectedRow.Add(kvp.Key, kvp.Value);
         }
@@ -178,17 +253,47 @@
     private async ValueTask<ItemsProviderResult<Dictionary<ColDescriptor, object>>> GetEntitiesScoped(ItemsProviderRequest request)
     {
         var entities = EntityService.GetRangeOfEntities(request.StartIndex, request.StartIndex + request.Count);
+        cols = entities.FirstOrDefault()?.Select(x => x.Key).ToList();
+        cols ??= EntityService.GetColumns(EntityService.SelectedTable).ToList();
 
         var result = new ItemsProviderResult<Dictionary<ColDescriptor, object>>(entities, total);
-        cols = entities.FirstOrDefault()?.Keys.Where(x => x.ColumnVisible).ToList() ?? new();
         await InvokeAsync(StateHasChanged);
         return result;
     }
 
     public Virtualize<Dictionary<ColDescriptor, object>> DefaultVirtualizer { get; set; }
+
     private async Task SelectedTableChanged(string value)
     {
         EntityService.SelectedTable = value;
         await Refresh();
     }
+
+
+    private void AddDialog()
+    {
+        SelectedRow = new Dictionary<ColDescriptor, object>();
+        _relations.Clear();
+        foreach (var colDescriptor in cols)
+        {
+            SelectedRow.Add(colDescriptor, null);
+            if (colDescriptor.ColumnValueType == ValueTypes.RELATION)
+            {
+                _relations.Add(colDescriptor, EntityService.GetRelationData(colDescriptor));
+            }
+        }
+        JSRuntime.InvokeVoidAsync("ShowDialog", "add-row-dialog");
+    }
+
+    private async Task AddRow()
+    {
+        await JSRuntime.InvokeVoidAsync("HideDialog", "add-row-dialog");
+        if (success)
+        {
+            EntityService.AddRow(SelectedRow);
+        }
+
+        await Refresh();
+    }
+
 }

@@ -1,6 +1,6 @@
 ﻿using Interfaces;
 using Models.Enums;
-using Models.Structs;
+using Models.Models;
 
 namespace Logic;
 
@@ -30,9 +30,14 @@ public class EntityService : IEntityService
         return _entityRepo.GetAllTableNames();
     }
 
-    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable =null, string? referenceColumn = null )
+    public void AddRow(Dictionary<ColDescriptor, object> row)
     {
-        _entityRepo.AddColumn(columnName, columnValueType, referenceTable, referenceColumn);
+        _entityRepo.AddRow(row);
+    }
+
+    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? newColumnIsMultiSelect = false)
+    {
+        _entityRepo.AddColumn(columnName, columnValueType, referenceTable, referenceColumn,newColumnIsMultiSelect);
     }
 
     public IEnumerable<ColDescriptor> GetTableSpec()
@@ -98,5 +103,15 @@ public class EntityService : IEntityService
     public List<Dictionary<ColDescriptor, object>> GetRelationData(ColDescriptor colDescriptor)
     {
         return _entityRepo.GetRelationData(colDescriptor);
+    }
+
+    public List<TableDescriptor> GetAllTables()
+    {
+        return _entityRepo.GetAllTables();
+    }
+
+    public void AddTable(TableDescriptor newTable)
+    {
+        _entityRepo.AddTable(newTable);
     }
 }

@@ -2,8 +2,8 @@
 @using Interfaces
 @using Models.Enums
 @using Models.Extensions
-@using Models.Structs
 @using System.ComponentModel.DataAnnotations
+@using Models.Models
 @inject IJSRuntime JSRuntime
 @inject IEntityService EntityService
 <div class="d-flex flex-row justify-content-between align-items-center px-2">
@@ -91,6 +91,14 @@
         }
     </table>
 </div>
+        <div class="field field-dropdown" style="max-width: 400px">
+        <InputSelect Value="EntityService.SelectedTable" ValueExpression="() => EntityService.SelectedTable" TValue="string" ValueChanged="SelectedTableChanged">
+            @foreach (var table in Tables)
+            {
+                <option value="@table">@table</option>
+            }
+        </InputSelect>
+        </div>
 
 <dialog id="edit-column-dialog">
     <EditForm OnValidSubmit="EditColumnFunc" Model="SelectedColDescriptor">
@@ -152,7 +160,7 @@
         {
             <div class="field field-dropdown">
                 <label for="table-input">Reference table</label>
-                <InputSelect id="table-input" class="form-control" Value="@(newColumn.ReferenceTable)" ValueChanged="SelectedTableChanged" TValue="string" ValueExpression="() => newColumn.ReferenceTable">
+                <InputSelect id="table-input" class="form-control" Value="@(newColumn.ReferenceTable)" ValueChanged="SelectedReferenceTableChanged" TValue="string" ValueExpression="() => newColumn.ReferenceTable">
                     @foreach (var table in _tables)
                     {
                         <option value="@table">@table</option>
@@ -177,6 +185,11 @@
                     <span>Loading...</span>
                 }
             </div>
+            <div class="field field-checkbox">
+                <label for="multi-field-input">Can select multiple</label>
+                <InputCheckbox id="multi-field-input" @bind-Value="newColumn.IsMultiSelect"> </InputCheckbox>
+                <ValidationMessage For="@(() => newColumn.IsMultiSelect)"/>
+            </div>
         }
         <button @onclick="() => { success = false; HideDialog(); }" value="cancel" type="reset" formmethod="dialog" class="btn btn-danger">Cancel</button>
         <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Add</button>
@@ -198,8 +211,10 @@
         public string? ReferenceTable { get; set; } = "";
         public ColDescriptor? ReferenceColumn { get; set; } = null;
         public Guid ReferenceColumnGuid { get; set; }
+        public bool IsMultiSelect { get; set; }
     }
 
+    List<string> Tables { get; set; } = new();
     NewColumn newColumn = new NewColumn();
 
     private void AddColumnFunc()
@@ -207,7 +222,7 @@
         JSRuntime.InvokeVoidAsync("HideDialog", "add-column-dialog");
         if (success)
         {
-            EntityService.AddColumn(newColumn.ColumnName, newColumn.ColumnValueType, newColumn.ReferenceTable, newColumn.ReferenceColumn?.ColumnName);
+            EntityService.AddColumn(newColumn.ColumnName, newColumn.ColumnValueType, newColumn.ReferenceTable, newColumn.ReferenceColumn?.ColumnName, newColumn?.IsMultiSelect);
         }
         _colDescriptors = EntityService.GetTableSpec();
     }
@@ -224,6 +239,7 @@
     {
         _colDescriptors = EntityService.GetTableSpec();
         _tables = EntityService.GetTableNames();
+        Tables = EntityService.GetAllTableNames().ToList();
     }
 
     private void RemoveColumnFunc(Guid id)
@@ -261,7 +277,7 @@
         JSRuntime.InvokeVoidAsync("HideDialog", "add-column-dialog");
     }
 
-    private void SelectedTableChanged(string value)
+    private void SelectedReferenceTableChanged(string value)
     {
         newColumn.ReferenceTable = value;
         _referenceColumns = new List<ColDescriptor>();
@@ -272,5 +288,10 @@
     {
         newColumn.ReferenceColumn = _referenceColumns?.FirstOrDefault(x => x.DescriptorId == value);
     }
-
+    private async Task SelectedTableChanged(string value)
+    {
+        EntityService.SelectedTable = value;
+        _colDescriptors = EntityService.GetTableSpec();
+        _tables = EntityService.GetTableNames();
+    }
 }

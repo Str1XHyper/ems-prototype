@@ -1,0 +1,103 @@
+﻿@page "/edittables"
+@using Interfaces
+@using Models.Models
+@inject IEntityService EntityService
+@inject IJSRuntime JSRuntime
+
+<div class="d-flex flex-row justify-content-between align-items-center px-2">
+    <h1>Edit tables</h1>
+    
+    <button @onclick="AddDialog" class="btn btn-success">Add</button>
+</div>
+<div class="flex flex-wrap flex-column card ">
+    <table class="result-table">
+        <colgroup>
+            <col>
+            <col>
+            <col style="width: 150px">
+        </colgroup>
+        <tr>
+            <th>
+                @nameof(TableDescriptor.TableName)
+            </th>
+            <th>
+                @nameof(TableDescriptor.HasHistoryTable)
+            </th>
+            <th>
+                Actions
+            </th>
+
+        </tr>
+        @foreach (var descriptor in TableDescriptors)
+        {
+            <tr>
+                <td>
+                    @descriptor.TableName
+                </td>
+                <td>
+                    @descriptor.HasHistoryTable
+                </td>
+               
+                <td>
+                    <button @onclick="() => { }" class="btn btn-outline-primary">
+                        <i class="fas fa-pencil"></i>
+                    </button>
+                    <button @onclick="() => {  }" class="btn btn-outline-danger">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+                
+            </tr>
+        }
+    </table>
+</div>
+<dialog id="add-table-dialog" style="width: 400px">
+    <EditForm OnValidSubmit="AddTableFunc" Model="NewTable">
+        <DataAnnotationsValidator/>
+
+        <div class="field">
+            <label for="table-name-input">Table name</label>
+            <InputText id="table-name-input" @bind-Value="NewTable.TableName" class="form-control" placeholder="Column name"/>
+            <ValidationMessage For="@(() => NewTable.TableName)"/>
+        </div>
+        <div class="field field-checkbox">
+            <label for="table-versioned-input">Is versioned</label>
+            <InputCheckbox id="table-versioned-input" @bind-Value="NewTable.HasHistoryTable"></InputCheckbox>
+            <ValidationMessage For="@(() => NewTable.HasHistoryTable)"/>
+        </div>
+
+        
+        <button @onclick="() => { success = false; HideDialog(); }" value="cancel" type="reset" formmethod="dialog" class="btn btn-danger">Cancel</button>
+        <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Add</button>
+    </EditForm>
+</dialog>
+@code { 
+    // ShowDialog(descriptor);
+    //RemoveColumnFunc(descriptor.DescriptorId);
+    List<TableDescriptor> TableDescriptors = new();
+    TableDescriptor NewTable = new();
+    bool success = false;
+    protected override async Task OnInitializedAsync()
+    {
+        TableDescriptors = EntityService.GetAllTables();
+    }
+    private void AddDialog()
+    {
+        NewTable = new TableDescriptor();
+        JSRuntime.InvokeVoidAsync("ShowDialog", "add-table-dialog");
+    }
+    private void AddTableFunc()
+    {
+        JSRuntime.InvokeVoidAsync("HideDialog", "add-table-dialog");
+        if (success)
+        {
+            EntityService.AddTable(NewTable);
+        }
+        TableDescriptors = EntityService.GetAllTables();
+    }
+    
+    private void HideDialog()
+    {
+        JSRuntime.InvokeVoidAsync("HideDialog", "add-table-dialog");
+    }
+}
