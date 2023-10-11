@@ -1,4 +1,5 @@
 ﻿using Interfaces;
+using Models;
 using Models.Enums;
 using Models.Models;
 
@@ -35,10 +36,10 @@ public class EntityService : IEntityService
         _entityRepo.AddRow(row);
     }
 
-    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? newColumnIsMultiSelect = false)
-    {
-        _entityRepo.AddColumn(columnName, columnValueType, referenceTable, referenceColumn,newColumnIsMultiSelect);
-    }
+    // public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? newColumnIsMultiSelect = false)
+    // {
+    //     _entityRepo.AddColumn(columnName, columnValueType, referenceTable, referenceColumn,newColumnIsMultiSelect);
+    // }
 
     public IEnumerable<ColDescriptor> GetTableSpec()
     {
@@ -113,5 +114,10 @@ public class EntityService : IEntityService
     public void AddTable(TableDescriptor newTable)
     {
         _entityRepo.AddTable(newTable);
+    }
+
+    public void AddColumn(NewColumn columnName)
+    {
+        _entityRepo.AddColumn(columnName);
     }
 }

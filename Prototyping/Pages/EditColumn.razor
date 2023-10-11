@@ -3,6 +3,7 @@
 @using Models.Enums
 @using Models.Extensions
 @using System.ComponentModel.DataAnnotations
+@using Models
 @using Models.Models
 @inject IJSRuntime JSRuntime
 @inject IEntityService EntityService
@@ -185,11 +186,32 @@
                     <span>Loading...</span>
                 }
             </div>
+        }
+        @if (IsDropdownAllowed(newColumn.ColumnValueType))
+        {
             <div class="field field-checkbox">
-                <label for="multi-field-input">Can select multiple</label>
-                <InputCheckbox id="multi-field-input" @bind-Value="newColumn.IsMultiSelect"> </InputCheckbox>
-                <ValidationMessage For="@(() => newColumn.IsMultiSelect)"/>
+                <label for="dropdown-input">Is dropdown field</label>
+                <InputCheckbox disabled="@(newColumn.ColumnValueType == ValueTypes.RELATION)" id="dropdown-input" @bind-Value="newColumn.IsDropdown"> </InputCheckbox>
+                <ValidationMessage For="@(() => newColumn.IsDropdown)"/>
             </div>
+            @if (newColumn.IsDropdown || newColumn.ColumnValueType == ValueTypes.RELATION)
+            {
+                <div class="field field-checkbox">
+                    <label for="multi-field-input">Can select multiple</label>
+                    <InputCheckbox id="multi-field-input" @bind-Value="newColumn.IsMultiSelect"> </InputCheckbox>
+                    <ValidationMessage For="@(() => newColumn.IsMultiSelect)"/>
+                </div>
+                @if (newColumn.ColumnValueType != ValueTypes.RELATION)
+                {
+                <div class="field">
+                    <label for="multi-field-inputs-input">Add options to dropdown, separate with a ",".</label>
+                    <InputText  id="multi-field-inputs-input" @bind-Value="newColumn.DropdownOptions"></InputText>
+                    <ValidationMessage For="@(() => newColumn.DropdownOptions)"/>
+                </div>
+                    
+                }
+            }
+            
         }
         <button @onclick="() => { success = false; HideDialog(); }" value="cancel" type="reset" formmethod="dialog" class="btn btn-danger">Cancel</button>
         <button type="submit" @onclick="() => { success = true; }" class="btn btn-primary">Add</button>
@@ -201,19 +223,6 @@
 
 @code {
 
-    class NewColumn
-    {
-        [Required]
-        public string ColumnName { get; set; }
-
-        public ValueTypes ColumnValueType { get; set; }
-
-        public string? ReferenceTable { get; set; } = "";
-        public ColDescriptor? ReferenceColumn { get; set; } = null;
-        public Guid ReferenceColumnGuid { get; set; }
-        public bool IsMultiSelect { get; set; }
-    }
-
     List<string> Tables { get; set; } = new();
     NewColumn newColumn = new NewColumn();
 
@@ -222,7 +231,7 @@
         JSRuntime.InvokeVoidAsync("HideDialog", "add-column-dialog");
         if (success)
         {
-            EntityService.AddColumn(newColumn.ColumnName, newColumn.ColumnValueType, newColumn.ReferenceTable, newColumn.ReferenceColumn?.ColumnName, newColumn?.IsMultiSelect);
+            EntityService.AddColumn(newColumn);
         }
         _colDescriptors = EntityService.GetTableSpec();
     }
@@ -237,9 +246,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Tables = EntityService.GetAllTableNames().ToList();
+        EntityService.SelectedTable = Tables.FirstOrDefault();
         _colDescriptors = EntityService.GetTableSpec();
         _tables = EntityService.GetTableNames();
-        Tables = EntityService.GetAllTableNames().ToList();
     }
 
     private void RemoveColumnFunc(Guid id)
@@ -294,4 +304,10 @@
         _colDescriptors = EntityService.GetTableSpec();
         _tables = EntityService.GetTableNames();
     }
+
+    private bool IsDropdownAllowed(ValueTypes columnValueType)
+    {
+        return columnValueType is ValueTypes.STRING or ValueTypes.RELATION;
+    }
+
 }

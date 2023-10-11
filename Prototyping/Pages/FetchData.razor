@@ -100,8 +100,9 @@ background-color: #0001;
 
     protected override void OnInitialized()
     {
-        total = EntityService.GetEntityCount();
         Tables = EntityService.GetAllTableNames().ToList();
+        EntityService.SelectedTable = Tables.FirstOrDefault();
+        total = EntityService.GetEntityCount();
     }
 
     private async ValueTask<ItemsProviderResult<Dictionary<ColDescriptor, object>>> GetEntitiesScoped(ItemsProviderRequest request)

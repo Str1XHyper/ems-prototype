@@ -1,4 +1,5 @@
-﻿using Models.Enums;
+﻿using Models;
+using Models.Enums;
 using Models.Models;
 
 namespace Interfaces;
@@ -9,7 +10,7 @@ public interface IEntityService
     DateTime SelectedDateTime { get; set; }
     string SelectedTable { get; set; }
 
-    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? newColumnIsMultiSelect = false);
+    // public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? newColumnIsMultiSelect = false);
     IEnumerable<ColDescriptor> GetTableSpec();
     void RemoveColumn(Guid id);
     void UpdateColumn(ColDescriptor selectedColDescriptor);
@@ -26,4 +27,5 @@ public interface IEntityService
     void AddRow(Dictionary<ColDescriptor, object> row);
     List<TableDescriptor> GetAllTables();
     void AddTable(TableDescriptor newTable);
+    void AddColumn(NewColumn columnName);
 }

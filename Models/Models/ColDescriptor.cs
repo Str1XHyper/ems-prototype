@@ -12,4 +12,7 @@ public class ColDescriptor
     public bool ColumnVisible;
     public bool ColumnEditable;
     public bool ValueEditable;
+    public bool IsMultiSelect;
+    public bool IsDropdown;
+    public IEnumerable<string> DropdownOptions;
 }

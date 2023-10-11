@@ -1,6 +1,8 @@
 ﻿using System.Data;
 using System.Data.SqlClient;
+using System.Xml.Linq;
 using Interfaces;
+using Models;
 using Models.Enums;
 using Models.Extensions;
 using Models.Models;
@@ -13,23 +15,23 @@ public class EntityRepo : IEntityRepo
     IEnumerable<ColDescriptor> _entityTableSpec;
 
     public DateTime SelectedDateTime { get; private set; } = DateTime.Now;
-    public string SelectedTable { get; private set; } = "Entity";
+    public string SelectedTable { get; private set; } = "";
     private IEnumerable<ColDescriptor> _entityTableSpecAsOfSelected;
     private IEnumerable<TableDescriptor> _tableDescriptors = new List<TableDescriptor>();
 
     public EntityRepo(ISqlConnector sqlConnector)
     {
         _sqlConnector = sqlConnector;
-        _entityTableSpec = GetEntityTableSpec();
-        _entityTableSpecAsOfSelected = GetEntityTableSpec(SelectedDateTime);
-        _tableDescriptors = GetAllTables();
+        // _entityTableSpec = GetEntityTableSpec();
+        // _entityTableSpecAsOfSelected = GetEntityTableSpec(SelectedDateTime);
+        // _tableDescriptors = GetAllTables();
     }
 
     public IEnumerable<string> GetAllTableNames()
     {
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
-        var query = "SELECT * FROM sys.Tables WHERE is_ms_shipped = 0 AND name NOT LIKE '%Spec' and name NOT LIKE '%History'";
+        var query = "SELECT * FROM sys.Tables WHERE is_ms_shipped = 0 AND name NOT LIKE '%Spec' and name NOT LIKE '%History' and name NOT Like 'DropdownOptions'";
         using var command = new SqlCommand(query, connection);
         using var reader = command.ExecuteReader();
         var result = new List<string>();
@@ -46,7 +48,7 @@ public class EntityRepo : IEntityRepo
     {
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
-        var query = "SELECT * FROM sys.Tables WHERE is_ms_shipped = 0  AND name NOT LIKE '%Spec' and name NOT LIKE '%History' AND NOT name = @name";
+        var query = "SELECT * FROM sys.Tables WHERE is_ms_shipped = 0  AND name NOT LIKE '%Spec' and name NOT LIKE '%History' AND NOT name = @name  and name NOT Like 'DropdownOptions'";
         using var command = new SqlCommand(query, connection);
         command.Parameters.AddWithValue("name", SelectedTable);
         using var reader = command.ExecuteReader();
@@ -192,7 +194,21 @@ ORDER BY
                     case "ValueEditable" when kvp.Value is bool valueEditable:
                         descriptor.ValueEditable = valueEditable;
                         break;
+                    case "IsMultiSelect" when kvp.Value is bool isMultiSelect:
+                        descriptor.IsMultiSelect = isMultiSelect;
+                        break;
+                    case "IsDropdown" when kvp.Value is bool isDropdown:
+                        descriptor.IsDropdown = isDropdown;
+                        break;
                 }
+
+                if (!descriptor.IsDropdown) continue;
+                var optionsQuery = "SELECT Value FROM [dbo].[DropdownOptions] WHERE [Internal_Column_Name] = @columnName";
+                var options = _sqlConnector.GetList(optionsQuery, new Dictionary<string, object>()
+                {
+                    {"columnName", descriptor.ColumnName ?? ""}
+                });
+                descriptor.DropdownOptions = options.Select(x => x["Value"] as string ?? "");
             }
 
             colDescriptors.Add(descriptor);
@@ -204,30 +220,75 @@ ORDER BY
     public List<Dictionary<ColDescriptor, object>> GetRelationData(ColDescriptor colDescriptor)
     {
         var query = $@"
+WITH DirectReferences AS (
+    SELECT 
+        OBJECT_NAME(f.parent_object_id) AS TableName,
+        COL_NAME(fc.parent_object_id, fc.parent_column_id) AS ColumnName,
+        OBJECT_NAME(f.referenced_object_id) AS ReferenceTableName,
+        COL_NAME(fc.referenced_object_id, fc.referenced_column_id) AS ReferenceColumnName,
+        f.name AS ForeignKeyName
+    FROM 
+        sys.foreign_keys AS f
+    INNER JOIN 
+        sys.foreign_key_columns AS fc 
+        ON f.OBJECT_ID = fc.constraint_object_id
+    WHERE 
+        OBJECT_NAME(f.parent_object_id) = '{SelectedTable}' 
+        AND SCHEMA_NAME(f.schema_id) = 'dbo'
+        AND COL_NAME(fc.parent_object_id, fc.parent_column_id) like @columnName
+),
+
+PotentialJoinTables AS (
+    SELECT 
+        OBJECT_NAME(f.parent_object_id) AS TableName
+    FROM 
+        sys.foreign_keys AS f
+    WHERE 
+        OBJECT_NAME(f.referenced_object_id) = '{SelectedTable}' 
+        AND SCHEMA_NAME(f.schema_id) = 'dbo'
+),
+
+JoinTableReferences AS (
+    SELECT 
+        jt.TableName AS JoinTableName,
+        COL_NAME(fc.parent_object_id, fc.parent_column_id) AS ColumnName,
+        OBJECT_NAME(f.referenced_object_id) AS ReferenceTableName,
+        COL_NAME(fc.referenced_object_id, fc.referenced_column_id) AS ReferenceColumnName,
+        f.name AS ForeignKeyName
+    FROM 
+        PotentialJoinTables jt
+    JOIN 
+        sys.foreign_keys AS f
+        ON jt.TableName = OBJECT_NAME(f.parent_object_id)
+    JOIN 
+        sys.foreign_key_columns AS fc 
+        ON f.OBJECT_ID = fc.constraint_object_id
+    WHERE 
+        OBJECT_NAME(f.referenced_object_id) <> '{SelectedTable}' 
+        AND SCHEMA_NAME(f.schema_id) = 'dbo'
+        AND COL_NAME(fc.parent_object_id, fc.parent_column_id) like @columnName
+)
+
+SELECT * FROM DirectReferences
+UNION ALL
 SELECT 
-    OBJECT_NAME(f.parent_object_id) AS TableName,
-    COL_NAME(fc.parent_object_id, fc.parent_column_id) AS ColumnName,
-    OBJECT_NAME(f.referenced_object_id) AS ReferenceTableName,
-    COL_NAME(fc.referenced_object_id, fc.referenced_column_id) AS ReferenceColumnName,
-    f.name AS ForeignKeyName
-FROM 
-    sys.foreign_keys AS f
-INNER JOIN 
-    sys.foreign_key_columns AS fc 
-    ON f.OBJECT_ID = fc.constraint_object_id
-WHERE 
-    OBJECT_NAME(f.parent_object_id) = '{SelectedTable}' 
-    AND SCHEMA_NAME(f.schema_id) = 'dbo'
-    AND COL_NAME(fc.parent_object_id, fc.parent_column_id) = @columnName
+    JoinTableName AS TableName,
+    ColumnName,
+    ReferenceTableName,
+    ReferenceColumnName,
+    ForeignKeyName
+FROM JoinTableReferences
 ORDER BY 
     TableName, 
     ColumnName, 
     ReferenceTableName, 
-    ReferenceColumnName;";
+    ReferenceColumnName;
+
+";
 
         var constraintResult = _sqlConnector.GetRow(query, new Dictionary<string, object>()
         {
-            { "columnName", colDescriptor.ColumnName }
+            { "columnName", $"{colDescriptor.ColumnName}%" }
         });
         if (constraintResult is null) throw new Exception();
         var otherTableSpec = GetTableSpec(constraintResult["ReferenceTableName"] as string ?? "");
@@ -255,6 +316,7 @@ ORDER BY
 
     private IEnumerable<ColDescriptor> GetEntityTableSpec(DateTime? asofDateTime = null)
     {
+        if (string.IsNullOrEmpty(SelectedTable)) return new List<ColDescriptor>();
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
         var query = "";
@@ -323,7 +385,21 @@ ORDER BY
                     case "ValueEditable" when kvp.Value is bool valueEditable:
                         descriptor.ValueEditable = valueEditable;
                         break;
+                    case "IsMultiSelect" when kvp.Value is bool isMultiSelect:
+                        descriptor.IsMultiSelect = isMultiSelect;
+                        break;
+                    case "IsDropdown" when kvp.Value is bool isDropdown:
+                        descriptor.IsDropdown = isDropdown;
+                        break;
                 }
+
+                if (!descriptor.IsDropdown) continue;
+                var optionsQuery = "SELECT Value FROM [dbo].[DropdownOptions] WHERE [Internal_Column_Name] = @columnName";
+                var options = _sqlConnector.GetList(optionsQuery, new Dictionary<string, object>()
+                {
+                    {"columnName", descriptor.ColumnName ?? ""}
+                });
+                descriptor.DropdownOptions = options.Select(x => x["Value"] as string ?? "");
             }
 
             colDescriptors.Add(descriptor);
@@ -334,6 +410,8 @@ ORDER BY
 
     public int GetTotalEntityCount()
     {
+        
+        if (string.IsNullOrEmpty(SelectedTable)) return 0;
         var query = $"SELECT Count(*) FROM [dbo].[{SelectedTable}]";
 
         using var connection = _sqlConnector.SqlConnection;
@@ -377,6 +455,8 @@ ORDER BY
 
     public int GetEntityCountByDate()
     {
+        
+        if (string.IsNullOrEmpty(SelectedTable)) return 0;
         var query = $"SELECT Count(*) FROM [dbo].[{SelectedTable}] For System_Time As Of @dateTime";
 
         using var connection = _sqlConnector.SqlConnection;
@@ -397,6 +477,8 @@ ORDER BY
 
     public List<Dictionary<ColDescriptor, object>> GetRangeOfEntities(int start, int end)
     {
+        
+        if (string.IsNullOrEmpty(SelectedTable)) return null;
         var foreignKeyQuery = $@"
 SELECT 
     OBJECT_NAME(f.parent_object_id) AS TableName,
@@ -475,7 +557,23 @@ ORDER BY
                 }
                 else
                 {
-                    resultDict.Add(colDescriptor, resultRow[colDescriptor.ColumnName]);
+                    if (colDescriptor.IsMultiSelect && colDescriptor.ColumnValueType != ValueTypes.RELATION)
+                    {
+                        var xmlString = resultRow[colDescriptor.ColumnName] as string;
+                        try
+                        {
+                            var xml = XElement.Parse(xmlString);
+                            resultDict.Add(colDescriptor, xml.Elements().Select(x => x.Value).ToArray());
+                        }
+                        catch
+                        {
+                            // ignored
+                        }
+                    }
+                    else
+                    {
+                        resultDict.Add(colDescriptor, resultRow[colDescriptor.ColumnName]);
+                    }
                 }
                 // if (foreignTableSpec.Any(x => x.ColumnName == colDescriptor.ColumnName))
                 // {
@@ -503,92 +601,94 @@ ORDER BY
     }
 
 
-    public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? newColumnIsMultiSelect =false)
-    {
-        var tableName = SelectedTable.ToLower();
-        var datatype = columnValueType switch
-        {
-            ValueTypes.NUMBER => "int",
-            ValueTypes.STRING => "nvarchar(100)",
-            ValueTypes.DATE => "datetime2(7)",
-            ValueTypes.BOOLEAN => "bit",
-            ValueTypes.GUID => "uniqueidentifier",
-            ValueTypes.EMAIL => "nvarchar(100)",
-            ValueTypes.PHONE => "nvarchar(100)",
-            ValueTypes.URL => "nvarchar(100)",
-            ValueTypes.PASSWORD => "nvarchar(100)",
-            ValueTypes.CURRENCY => "decimal(18,2)",
-            ValueTypes.PERCENTAGE => "decimal(18,2)",
-            ValueTypes.DATETIME => "datetime2(7)",
-            ValueTypes.TIME => "time(7)",
-            ValueTypes.RELATION => "uniqueidentifier",
-            _ => throw new ArgumentOutOfRangeException(nameof(columnValueType), columnValueType, null)
-        };
-
-        using var connection = _sqlConnector.SqlConnection;
-        connection.Open();
-
-        SqlCommand command = connection.CreateCommand();
-        SqlTransaction transaction;
-
-        // Start a local transaction.
-        transaction = connection.BeginTransaction();
-
-        // Must assign both transaction object and connection
-        // to Command object for a pending local transaction
-        command.Connection = connection;
-        command.Transaction = transaction;
-
-        var counter = 1;
-        if (_entityTableSpec.Any(x => x.ColumnName.StartsWith($"{tableName}_{columnName}")))
-        {
-            var highest = _entityTableSpec
-                .Where(x => x.ColumnName.StartsWith($"{tableName}_{columnName}"))
-                .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
-            counter = highest + 1;
-        }
-
-        var internalColumnName = $"{tableName}_{columnName}_{counter}";
-
-        var insertQuery = $"ALTER TABLE [dbo].[{tableName}] ADD [{internalColumnName}] {datatype};";
-
-        if (columnValueType == ValueTypes.RELATION)
-        {
-            if (referenceColumn is null || referenceTable is null)
-                throw new ArgumentNullException(nameof(referenceColumn), "Reference column and table must be specified");
-            insertQuery += $"ALTER TABLE [dbo].[{tableName}] ADD CONSTRAINT [FK_{tableName}_{referenceTable}] FOREIGN KEY ([{internalColumnName}]) REFERENCES [dbo].[{referenceTable}] ([{referenceColumn}]);";
-        }
-
-        var specQuery = $"INSERT INTO [dbo].[{tableName}Spec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ValueEditable, ColumnEditable, ColumnVisible) VALUES (@internalColumnName, @columnName, @columnValueType, 1, 1, 1, 1);";
-        try
-        {
-            command.CommandText = insertQuery;
-            command.ExecuteNonQuery();
-
-            command.CommandText = specQuery;
-            command.Parameters.AddWithValue("internalColumnName", internalColumnName);
-            command.Parameters.AddWithValue("columnName", columnName);
-            command.Parameters.AddWithValue("columnValueType", columnValueType);
-            command.ExecuteNonQuery();
-
-            transaction.Commit();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(ex);
-            transaction.Rollback();
-        }
-        finally
-        {
-            connection.Close();
-            _entityTableSpec = GetEntityTableSpec();
-        }
-    }
+    // public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? isMultiSelect =false)
+    // {
+    //     var tableName = SelectedTable.ToLower();
+    //     var datatype = columnValueType switch
+    //     {
+    //         ValueTypes.NUMBER => "int",
+    //         ValueTypes.STRING => "nvarchar(100)",
+    //         ValueTypes.DATE => "datetime2(7)",
+    //         ValueTypes.BOOLEAN => "bit",
+    //         ValueTypes.GUID => "uniqueidentifier",
+    //         ValueTypes.EMAIL => "nvarchar(100)",
+    //         ValueTypes.PHONE => "nvarchar(100)",
+    //         ValueTypes.URL => "nvarchar(100)",
+    //         ValueTypes.PASSWORD => "nvarchar(100)",
+    //         ValueTypes.CURRENCY => "decimal(18,2)",
+    //         ValueTypes.PERCENTAGE => "decimal(18,2)",
+    //         ValueTypes.DATETIME => "datetime2(7)",
+    //         ValueTypes.TIME => "time(7)",
+    //         ValueTypes.RELATION => "uniqueidentifier",
+    //         _ => throw new ArgumentOutOfRangeException(nameof(columnValueType), columnValueType, null)
+    //     };
+    //
+    //     using var connection = _sqlConnector.SqlConnection;
+    //     connection.Open();
+    //
+    //     SqlCommand command = connection.CreateCommand();
+    //     SqlTransaction transaction;
+    //
+    //     // Start a local transaction.
+    //     transaction = connection.BeginTransaction();
+    //
+    //     // Must assign both transaction object and connection
+    //     // to Command object for a pending local transaction
+    //     command.Connection = connection;
+    //     command.Transaction = transaction;
+    //
+    //     var counter = 1;
+    //     if (_entityTableSpec.Any(x => x.ColumnName.StartsWith($"{tableName}_{columnName}")))
+    //     {
+    //         var highest = _entityTableSpec
+    //             .Where(x => x.ColumnName.StartsWith($"{tableName}_{columnName}"))
+    //             .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
+    //         counter = highest + 1;
+    //     }
+    //
+    //     var internalColumnName = $"{tableName}_{columnName}_{counter}";
+    //
+    //     var insertQuery = $"ALTER TABLE [dbo].[{tableName}] ADD [{internalColumnName}] {datatype};";
+    //
+    //     if (columnValueType == ValueTypes.RELATION)
+    //     {
+    //         if (referenceColumn is null || referenceTable is null)
+    //             throw new ArgumentNullException(nameof(referenceColumn), "Reference column and table must be specified");
+    //         insertQuery += $"ALTER TABLE [dbo].[{tableName}] ADD CONSTRAINT [FK_{tableName}_{referenceTable}] FOREIGN KEY ([{internalColumnName}]) REFERENCES [dbo].[{referenceTable}] ([{referenceColumn}]);";
+    //     }
+    //
+    //     var specQuery = $"INSERT INTO [dbo].[{tableName}Spec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ValueEditable, ColumnEditable, ColumnVisible, IsMultiSelect) VALUES (@internalColumnName, @columnName, @columnValueType, 1, 1, 1, 1, @isMultiSelect);";
+    //     try
+    //     {
+    //         command.CommandText = insertQuery;
+    //         command.ExecuteNonQuery();
+    //
+    //         command.CommandText = specQuery;
+    //         command.Parameters.AddWithValue("internalColumnName", internalColumnName);
+    //         command.Parameters.AddWithValue("columnName", columnName);
+    //         command.Parameters.AddWithValue("columnValueType", columnValueType);
+    //         command.Parameters.AddWithValue("isMultiSelect", isMultiSelect);
+    //         command.ExecuteNonQuery();
+    //
+    //         transaction.Commit();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine(ex);
+    //         transaction.Rollback();
+    //     }
+    //     finally
+    //     {
+    //         connection.Close();
+    //         _entityTableSpec = GetEntityTableSpec();
+    //     }
+    // }
 
     public IEnumerable<ColDescriptor> GetTableSpec(string tableName = "")
     {
         if (tableName == "")
         {
+            if (string.IsNullOrEmpty(SelectedTable)) return null;
             tableName = SelectedTable.ToLower();
         }
 
@@ -646,7 +746,21 @@ ORDER BY
                     case "ValueEditable" when kvp.Value is bool valueEditable:
                         descriptor.ValueEditable = valueEditable;
                         break;
+                    case "IsMultiSelect" when kvp.Value is bool isMultiSelect:
+                        descriptor.IsMultiSelect = isMultiSelect;
+                        break;
+                    case "IsDropdown" when kvp.Value is bool isDropdown:
+                        descriptor.IsDropdown = isDropdown;
+                        break;
                 }
+
+                if (!descriptor.IsDropdown) continue;
+                var optionsQuery = "SELECT Value FROM [dbo].[DropdownOptions] WHERE [Internal_Column_Name] = @columnName";
+                var options = _sqlConnector.GetList(optionsQuery, new Dictionary<string, object>()
+                {
+                    {"columnName", descriptor.ColumnName ?? ""}
+                });
+                descriptor.DropdownOptions = options.Select(x => x["Value"] as string ?? "");
             }
 
             colDescriptors.Add(descriptor);
@@ -812,7 +926,17 @@ ORDER BY
             command.CommandText = query;
             foreach (var kvp in row)
             {
-                command.Parameters.AddWithValue(kvp.Key.ColumnName.Replace(' ', '_'), kvp.Value);
+                if (kvp.Key.IsMultiSelect && kvp.Key.ColumnValueType != ValueTypes.RELATION)
+                {
+                    XElement xmlElements = new XElement("Values", ((string[])kvp.Value).Select(x => new XElement("Value", x)));
+                    command.Parameters.AddWithValue(kvp.Key.ColumnName.Replace(' ', '_'), xmlElements.ToString());
+                }
+
+                else
+                {
+                    command.Parameters.AddWithValue(kvp.Key.ColumnName.Replace(' ', '_'), kvp.Value);
+                    
+                }
             }
 
             command.ExecuteNonQuery();
@@ -833,11 +957,12 @@ ORDER BY
     public void AddRow(Dictionary<ColDescriptor, object> row)
     {
         var tableName = SelectedTable.ToLower();
-        var columns = string.Join(", ", row.Keys.Where(x => x.ColumnName != $"{tableName}_Id_1").Select(x => $"[{x.ColumnName}]"));
-        var values = string.Join(", ", row.Keys.Where(x => x.ColumnName != $"{tableName}_Id_1").Select(x => $"@{x.ColumnName.Replace(' ', '_')}"));
+        var columns = string.Join(", ", row.Keys.Where(x => x.ColumnName != $"{tableName}_Id_1" && x is not { ColumnValueType: ValueTypes.RELATION, IsMultiSelect: true }).Select(x => $"[{x.ColumnName}]"));
+        var values = string.Join(", ", row.Keys.Where(x => x.ColumnName != $"{tableName}_Id_1" && x is not { ColumnValueType: ValueTypes.RELATION, IsMultiSelect: true }).Select(x => $"@{x.ColumnName.Replace(' ', '_')}"));
 
-        var query = $"INSERT INTO [dbo].[{tableName}] ({columns}) VALUES ({values})";
-
+        var query = $"INSERT INTO [dbo].[{tableName}] ({columns}) OUTPUT INSERTED.[{tableName}_Id_1] VALUES ({values}) ;";
+        
+        
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
         SqlCommand command = connection.CreateCommand();
@@ -853,11 +978,37 @@ ORDER BY
         try
         {
             command.CommandText = query;
-            foreach (var kvp in row.Where(x => x.Key.ColumnName != $"{tableName}_Id_1"))
+            foreach (var kvp in row.Where(x => x.Key.ColumnName != $"{tableName}_Id_1" && x.Key is not { ColumnValueType: ValueTypes.RELATION, IsMultiSelect: true }))
             {
                 command.Parameters.AddWithValue(kvp.Key.ColumnName.Replace(' ', '_'), kvp.Value);
             }
 
+            var insertedId = command.ExecuteScalar();
+            
+            var joinTableQuery = "";
+
+            foreach (var kvp in row.Where(x => x.Key is { ColumnValueType: ValueTypes.RELATION, IsMultiSelect: true }))
+            {
+                var (joinTableName, el1, el2) = GetJoinTableName(kvp.Key.ColumnName);
+                joinTableQuery += $@"
+INSERT INTO [dbo].[{joinTableName}] ({el1}, {el2}) VALUES
+";
+                var valuesList = (string[])kvp.Value;
+                foreach (var value in valuesList)
+                {
+                    joinTableQuery += $"('{insertedId}', '{value}'),";
+                }
+
+                joinTableQuery = joinTableQuery.TrimEnd(',');
+                joinTableQuery += ";";
+            }
+
+            if (string.IsNullOrEmpty(joinTableQuery))
+            {
+                transaction.Commit();
+                return;
+            }
+            command.CommandText = joinTableQuery;
             command.ExecuteNonQuery();
             transaction.Commit();
         }
@@ -880,7 +1031,7 @@ ORDER BY
             name as TableName,
             IIF(history_table_id IS NOT NULL, 1, 0) AS HasHistoryTable
         FROM sys.Tables
-        WHERE is_ms_shipped = 0 AND name NOT LIKE '%Spec' AND name NOT LIKE '%History'
+        WHERE is_ms_shipped = 0 AND name NOT LIKE '%Spec' AND name NOT LIKE '%History' AND name NOT Like 'DropdownOptions'
         ";
         var result = _sqlConnector.GetList(query);
         List<TableDescriptor> tableDescriptors = new();
@@ -930,6 +1081,8 @@ CREATE TABLE dbo.{newTable.TableName}Spec (
     [ColumnVisible] BIT NOT NULL,
     [ColumnEditable] BIT NOT NULL,
     [ValueEditable] BIT NOT NULL,
+    [IsMultiSelect] BIT DEFAULT 0 NOT NULL,
+    [IsDropdown] BIT DEFAULT 0 NOT NULL,
     [ValidFrom] DATETIME2 GENERATED ALWAYS AS ROW START,
     [ValidTo] DATETIME2 GENERATED ALWAYS AS ROW END,
     PERIOD FOR SYSTEM_TIME(ValidFrom, ValidTo)
@@ -956,7 +1109,8 @@ CREATE TABLE dbo.{newTable.TableName}Spec (
     [ColumnVisible] BIT NOT NULL,
     [ColumnEditable] BIT NOT NULL,
     [ValueEditable] BIT NOT NULL,
-    
+    [IsMultiSelect] BIT DEFAULT 0 NOT NULL,
+    [IsDropdown] BIT DEFAULT 0 NOT NULL,
 );
 Insert Into [dbo].[{newTable.TableName}Spec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ColumnEditable, ValueEditable, ColumnVisible) VALUES ('{newTable.TableName.ToLower()}_Id_1', 'Id', 4, 1, 0, 0, 1)
 ";
@@ -990,5 +1144,176 @@ Insert Into [dbo].[{newTable.TableName}Spec] (ColumnName, ColumnDisplayName, Col
         {
             connection.Close();
         }
+    }
+
+    public void AddColumn(NewColumn newColumn)
+    {
+        var tableName = SelectedTable.ToLower();
+        var datatype = newColumn.ColumnValueType switch
+        {
+            ValueTypes.NUMBER => "int",
+            ValueTypes.STRING => "nvarchar(100)",
+            ValueTypes.DATE => "datetime2(7)",
+            ValueTypes.BOOLEAN => "bit",
+            ValueTypes.GUID => "uniqueidentifier",
+            ValueTypes.EMAIL => "nvarchar(100)",
+            ValueTypes.PHONE => "nvarchar(100)",
+            ValueTypes.URL => "nvarchar(100)",
+            ValueTypes.PASSWORD => "nvarchar(100)",
+            ValueTypes.CURRENCY => "decimal(18,2)",
+            ValueTypes.PERCENTAGE => "decimal(18,2)",
+            ValueTypes.DATETIME => "datetime2(7)",
+            ValueTypes.TIME => "time(7)",
+            ValueTypes.RELATION => "uniqueidentifier",
+            _ => throw new ArgumentOutOfRangeException()
+        };
+
+        if (newColumn.IsMultiSelect && newColumn.ColumnValueType != ValueTypes.RELATION)
+        {
+            datatype = "xml";
+        }
+
+        using var connection = _sqlConnector.SqlConnection;
+        connection.Open();
+
+        SqlCommand command = connection.CreateCommand();
+        SqlTransaction transaction;
+
+        // Start a local transaction.
+        transaction = connection.BeginTransaction();
+
+        // Must assign both transaction object and connection
+        // to Command object for a pending local transaction
+        command.Connection = connection;
+        command.Transaction = transaction;
+
+        var counter = 1;
+        if (_entityTableSpec.Any(x => x.ColumnName.StartsWith($"{tableName}_{newColumn.ColumnName}")))
+        {
+            var highest = _entityTableSpec
+                .Where(x => x.ColumnName.StartsWith($"{tableName}_{newColumn.ColumnName}"))
+                .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
+            counter = highest + 1;
+        }
+
+        var internalColumnName = $"{tableName}_{newColumn.ColumnName}_{counter}";
+
+        var insertQuery = $"ALTER TABLE [dbo].[{tableName}] ADD [{internalColumnName}] {datatype};";
+
+        if (newColumn is { ColumnValueType: ValueTypes.RELATION, IsMultiSelect: false })
+        {
+            if (newColumn.ReferenceColumn is null || newColumn.ReferenceTable is null)
+                throw new ArgumentNullException(nameof(newColumn.ReferenceColumn), "Reference column and table must be specified");
+            insertQuery += $"ALTER TABLE [dbo].[{tableName}] ADD CONSTRAINT [FK_{tableName}_{newColumn.ReferenceTable}] FOREIGN KEY ([{internalColumnName}]) REFERENCES [dbo].[{newColumn.ReferenceTable}] ([{newColumn.ReferenceColumn.ColumnName}]);";
+        }
+        else if(newColumn is {ColumnValueType: ValueTypes.RELATION, IsMultiSelect: true})
+        {
+            insertQuery += $@"
+CREATE TABLE dbo.[{SelectedTable.ToLower()}_{newColumn.ReferenceTable.ToLower()}] (
+    [Id] UniqueIdentifier DEFAULT NEWID() NOT NULL PRIMARY KEY ,
+    [{internalColumnName}_{newColumn.ReferenceTable.ToLower()}_Id] UniqueIdentifier NOT NULL,
+    [{internalColumnName}_{SelectedTable.ToLower()}_Id] UniqueIdentifier NOT NULL
+);
+ALTER TABLE dbo.[{SelectedTable.ToLower()}_{newColumn.ReferenceTable.ToLower()}] ADD CONSTRAINT [FK_{tableName}_{newColumn.ReferenceTable}_1] FOREIGN KEY ([{internalColumnName}_{newColumn.ReferenceTable.ToLower()}_Id]) REFERENCES [dbo].[{newColumn.ReferenceTable}] ([{newColumn.ReferenceColumn.ColumnName}]);
+ALTER TABLE dbo.[{SelectedTable.ToLower()}_{newColumn.ReferenceTable.ToLower()}] ADD CONSTRAINT [FK_{tableName}_{newColumn.ReferenceTable}_2] FOREIGN KEY ([{internalColumnName}_{SelectedTable.ToLower()}_Id]) REFERENCES [dbo].[{tableName}] ([{tableName}_Id_1]);
+";
+        }
+
+        var specQuery = $"INSERT INTO [dbo].[{tableName}Spec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ValueEditable, ColumnEditable, ColumnVisible, IsMultiSelect, IsDropdown) VALUES (@internalColumnName, @columnName, @columnValueType, 1, 1, 1, 1, @isMultiSelect, @isDropdown);";
+        try
+        {
+            command.CommandText = insertQuery;
+            command.ExecuteNonQuery();
+
+            command.CommandText = specQuery;
+            command.Parameters.AddWithValue("internalColumnName", internalColumnName);
+            command.Parameters.AddWithValue("columnName", newColumn.ColumnName);
+            command.Parameters.AddWithValue("columnValueType", newColumn.ColumnValueType);
+            command.Parameters.AddWithValue("isMultiSelect", newColumn.IsMultiSelect);
+            command.Parameters.AddWithValue("isDropdown", newColumn.IsDropdown);
+            command.ExecuteNonQuery();
+
+            if (newColumn.IsDropdown)
+            {
+                var options = newColumn.DropdownOptions.Split(',').Select(x => x.Trim());
+                var optionValues = string.Join(", ", options.Select(x => $"('{internalColumnName}', '{x}')"));
+                var optionQuery = $"INSERT INTO [dbo].[DropdownOptions] (Internal_Column_Name, Value) VALUES " + optionValues;
+                command.CommandText = optionQuery;
+                command.ExecuteNonQuery();
+            }
+            
+            transaction.Commit();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+            transaction.Rollback();
+        }
+        finally
+        {
+            connection.Close();
+            _entityTableSpec = GetEntityTableSpec();
+        }
+    }
+
+    private (string?, string?, string?) GetJoinTableName(string internalColumnName)
+    {
+                var query = $@"
+
+WITH PotentialJoinTables AS (
+    SELECT 
+        OBJECT_NAME(f.parent_object_id) AS TableName
+    FROM 
+        sys.foreign_keys AS f
+    WHERE 
+        OBJECT_NAME(f.referenced_object_id) = '{SelectedTable}' 
+        AND SCHEMA_NAME(f.schema_id) = 'dbo'
+),
+
+JoinTableReferences AS (
+    SELECT 
+        jt.TableName AS JoinTableName,
+        COL_NAME(fc.parent_object_id, fc.parent_column_id) AS ColumnName,
+        OBJECT_NAME(f.referenced_object_id) AS ReferenceTableName,
+        COL_NAME(fc.referenced_object_id, fc.referenced_column_id) AS ReferenceColumnName,
+        f.name AS ForeignKeyName
+    FROM 
+        PotentialJoinTables jt
+    JOIN 
+        sys.foreign_keys AS f
+        ON jt.TableName = OBJECT_NAME(f.parent_object_id)
+    JOIN 
+        sys.foreign_key_columns AS fc 
+        ON f.OBJECT_ID = fc.constraint_object_id
+    WHERE 
+         SCHEMA_NAME(f.schema_id) = 'dbo'
+        AND COL_NAME(fc.parent_object_id, fc.parent_column_id) like @columnName
+)
+SELECT 
+    JoinTableName AS TableName,
+    ColumnName,
+    ReferenceTableName,
+    ReferenceColumnName,
+    ForeignKeyName
+FROM JoinTableReferences
+ORDER BY 
+    TableName, 
+    ColumnName, 
+    ReferenceTableName, 
+    ReferenceColumnName;
+
+";
+
+        var constraintResult = _sqlConnector.GetList(query, new Dictionary<string, object>()
+        {
+            { "columnName", $"{internalColumnName}%" }
+        });
+        if (constraintResult is null) throw new Exception();
+        
+        var tableName = constraintResult.First()["TableName"] as string;
+        string[] columns = constraintResult.Select(x=> x["ColumnName"] as string).ToArray();
+        var el1 = columns.First(x => x.Contains($"_{SelectedTable.ToLower()}_"));
+        var el2 = columns.First(x => !x.Contains($"_{SelectedTable.ToLower()}_"));
+        return (tableName,el1,el2);
     }
 }

@@ -1,5 +1,6 @@
 ﻿namespace Models.Enums;
 
+
 public enum ValueTypes
 {
     NUMBER,

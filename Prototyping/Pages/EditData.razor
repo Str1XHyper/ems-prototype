@@ -32,7 +32,15 @@
                 <tr style="height: 24px" class="border-bottom">
                     @foreach (var item in row.Where(x => x.Key.ColumnVisible))
                     {
-                        <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
+                        if (item.Key.IsMultiSelect && item.Key.ColumnValueType != ValueTypes.RELATION)
+                        {
+                            
+                            <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@(string.Join(", ",(item.Value as string[])))</td>
+                        }
+                        else
+                        {
+                            <td class="px-2" style="text-overflow: ellipsis; text-wrap: nowrap ">@item.Value</td>
+                        }
                     }
                     <td>
                         <button @onclick="() => { ShowDialog(row); }" class="btn btn-outline-primary">
@@ -58,11 +66,49 @@
     <EditForm OnValidSubmit="EditRow" Model="SelectedRow">
         @foreach (var kvp in SelectedRow.Where(x => x.Key.ValueEditable))
         {
-            @if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
+            @if (kvp.Key.IsDropdown)
             {
                 <div class="field field-dropdown">
                     <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
-                    <select  id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                    @if (kvp.Key.IsMultiSelect)
+                    {
+                        <select id="@kvp.Key.ColumnName" multiple style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                            <option disabled selected value=""> -- select an option -- </option>
+                            @foreach (var option in kvp.Key.DropdownOptions)
+                            {
+                                <option value="@option">@option</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <select id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                            @if (kvp.Value == null)
+                            {
+                                <option disabled selected value="@(new Guid())"> -- select an option -- </option>
+                            }
+                            @foreach (var option in kvp.Key.DropdownOptions)
+                            {
+                                @if (option == (string)kvp.Value)
+                                {
+                                    <option selected value="@option">@option</option>
+                                    
+                                }
+                                else
+                                {
+                                    <option value="@option">@option</option>
+                                }
+                            }
+                        </select>
+                    }
+
+                </div>
+            }
+            else if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
+            {
+                <div class="field field-dropdown">
+                    <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                    <select id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
                         @if (kvp.Value == null)
                         {
                             <option disabled selected value="@(new Guid())"> -- select an option -- </option>
@@ -129,19 +175,64 @@
     <EditForm OnValidSubmit="AddRow" Model="SelectedRow">
         @foreach (var kvp in SelectedRow.Where(x => x.Key.ValueEditable))
         {
-            @if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
+            @if (kvp.Key.IsDropdown)
             {
                 <div class="field field-dropdown">
                     <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
-                    <select id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
-                        <option disabled selected value="@(new Guid())"> -- select an option -- </option>
-                        @foreach (var row in _relations[kvp.Key])
-                        {
-                            <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
-                        }
-                    </select>
+                    @if (kvp.Key.IsMultiSelect)
+                    {
+                        <select id="@kvp.Key.ColumnName" multiple style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                            <option disabled selected value=""> -- select an option -- </option>
+                            @foreach (var option in kvp.Key.DropdownOptions)
+                            {
+                                <option value="@option">@option</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <select id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                            <option disabled selected value=""> -- select an option -- </option>
+                            @foreach (var option in kvp.Key.DropdownOptions)
+                            {
+                                <option value="@option">@option</option>
+                            }
+                        </select>
+                    }
 
                 </div>
+            }
+            else if (kvp.Key.ColumnValueType == ValueTypes.RELATION)
+            {
+                @if (kvp.Key.IsMultiSelect)
+                {
+                    
+                    <div class="field field-dropdown">
+                        <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                        <select id="@kvp.Key.ColumnName" multiple style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                            <option disabled selected value="@(new Guid())"> -- select an option -- </option>
+                            @foreach (var row in _relations[kvp.Key])
+                            {
+                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
+                            }
+                        </select>
+
+                    </div>
+                }
+                else
+                {
+                    <div class="field field-dropdown">
+                        <label for="@kvp.Key.ColumnName">@kvp.Key.ColumnDisplayName</label>
+                        <select id="@kvp.Key.ColumnName" style="width: 100%" @onchange="(c) => { OnChangeHandler(kvp.Key, c); }" @oninput="c => { OnChangeHandler(kvp.Key, c); }">
+                            <option disabled selected value="@(new Guid())"> -- select an option -- </option>
+                            @foreach (var row in _relations[kvp.Key])
+                            {
+                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
+                            }
+                        </select>
+
+                    </div>
+                }
             }
             else
             {
@@ -197,8 +288,9 @@
 
     protected override void OnInitialized()
     {
-        GetNewTotal();
         Tables = EntityService.GetAllTableNames().ToList();
+        EntityService.SelectedTable = Tables.FirstOrDefault();
+        GetNewTotal();
     }
 
     private void ShowDialog(Dictionary<ColDescriptor, object> row)
