@@ -248,7 +248,7 @@
     {
         Tables = EntityService.GetAllTableNames().ToList();
         EntityService.SelectedTable = Tables.FirstOrDefault();
-        _colDescriptors = EntityService.GetTableSpec();
+        _colDescriptors = EntityService.GetTableSpec() ?? new List<ColDescriptor>();
         _tables = EntityService.GetTableNames();
     }
 

@@ -110,7 +110,7 @@ background-color: #0001;
         stopwatch.Reset();
         stopwatch.Start();
         List<Dictionary<ColDescriptor, object>> entities = EntityService.GetRangeOfEntities(request.StartIndex, request.StartIndex + request.Count);
-
+        entities ??= new List<Dictionary<ColDescriptor, object>>();
         var result = new ItemsProviderResult<Dictionary<ColDescriptor, object>>(entities, total);
         cols = entities.FirstOrDefault()?.Keys.Where(x => x.ColumnVisible).ToList() ?? new();
         stopwatch.Stop();

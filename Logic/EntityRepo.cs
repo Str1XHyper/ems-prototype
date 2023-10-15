@@ -22,6 +22,23 @@ public class EntityRepo : IEntityRepo
     public EntityRepo(ISqlConnector sqlConnector)
     {
         _sqlConnector = sqlConnector;
+        
+        using var sqlConnection = _sqlConnector.SqlConnection;
+        sqlConnection.Open();
+        var query = $@"
+IF NOT EXISTS (SELECT * FROM sys.Tables WHERE is_ms_shipped = 0 AND name = 'DropdownOptions')
+BEGIN
+CREATE TABLE dbo.[DropdownOptions] (
+    [Id] UniqueIdentifier DEFAULT NEWID() NOT NULL PRIMARY KEY ,
+    [Internal_Column_Name] NVARCHAR(100) NOT NULL,
+    [Value] NVARCHAR(100) NOT NULL,
+);
+END";
+        var command = new SqlCommand(query, sqlConnection);
+        command.ExecuteNonQuery();
+        sqlConnection.Close();
+        
+        
         // _entityTableSpec = GetEntityTableSpec();
         // _entityTableSpecAsOfSelected = GetEntityTableSpec(SelectedDateTime);
         // _tableDescriptors = GetAllTables();
@@ -46,6 +63,7 @@ public class EntityRepo : IEntityRepo
 
     public IEnumerable<string> GetTableNames()
     {
+        if (string.IsNullOrEmpty(SelectedTable)) return null;
         using var connection = _sqlConnector.SqlConnection;
         connection.Open();
         var query = "SELECT * FROM sys.Tables WHERE is_ms_shipped = 0  AND name NOT LIKE '%Spec' and name NOT LIKE '%History' AND NOT name = @name  and name NOT Like 'DropdownOptions'";
