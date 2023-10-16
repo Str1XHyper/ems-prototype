@@ -213,7 +213,7 @@
                             <option disabled selected value="@(new Guid())"> -- select an option -- </option>
                             @foreach (var row in _relations[kvp.Key])
                             {
-                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
+                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => x.Key.ColumnValueType is not ValueTypes.RELATION and not ValueTypes.GUID).Value</option>
                             }
                         </select>
 
@@ -227,7 +227,7 @@
                             <option disabled selected value="@(new Guid())"> -- select an option -- </option>
                             @foreach (var row in _relations[kvp.Key])
                             {
-                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => !x.Key.ColumnName.EndsWith("Id_1")).Value</option>
+                                <option value="@row.First(x => x.Key.ColumnName.EndsWith("Id_1")).Value">@row.FirstOrDefault(x => x.Key.ColumnValueType is not ValueTypes.RELATION and not ValueTypes.GUID).Value</option>
                             }
                         </select>
 

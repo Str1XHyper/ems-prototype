@@ -310,7 +310,7 @@ ORDER BY
         });
         if (constraintResult is null) throw new Exception();
         var otherTableSpec = GetTableSpec(constraintResult["ReferenceTableName"] as string ?? "");
-        var otherTableSelectedColumns = string.Join(", ", otherTableSpec.Select(x => x.ColumnName));
+        var otherTableSelectedColumns = string.Join(", ", otherTableSpec.Select(x => $"[{x.ColumnName}]"));
 
         var dataQuery = $"SELECT {otherTableSelectedColumns} FROM dbo.[{constraintResult["ReferenceTableName"]}]";
         var result = _sqlConnector.GetList(dataQuery);
@@ -519,6 +519,46 @@ ORDER BY
     ReferenceColumnName;";
 
         var foreignKeysDBResult = _sqlConnector.GetList(foreignKeyQuery);
+
+        var joinTableDict = new Dictionary<string, object>();
+
+        foreach (var joinTableColDescriptor in _entityTableSpec.Where(x => x is { IsMultiSelect: true, ColumnValueType: ValueTypes.RELATION }))
+        {
+            var (tableName, el1, el2, otherTable) = GetJoinTableName(joinTableColDescriptor.ColumnName);
+            var query2 = $@"
+WITH List AS (
+    SELECT
+        e.[{SelectedTable.ToLower()}_Id_1] AS a,
+        p.[{otherTable}_Name_1] AS b
+    FROM [{SelectedTable}] AS e
+    LEFT JOIN [{tableName}] AS ep ON e.[{SelectedTable.ToLower()}_Id_1] = ep.[{el1}]
+    LEFT JOIN [{otherTable}] AS p ON ep.[{el2}] = p.[{otherTable.ToLower()}_Id_1]
+),
+
+AggregateList AS (
+SELECT
+    a,
+    STUFF((
+        SELECT ', ' + b
+        FROM List AS sub
+        WHERE sub.a = main.a
+        FOR XML PATH('')
+    ), 1, 2, '') AS List
+FROM List AS main
+GROUP BY a
+)
+
+SELECT 
+    e.[{SelectedTable.ToLower()}_Id_1],
+    p.List AS [{joinTableColDescriptor.ColumnName}]
+FROM dbo.[{SelectedTable}] AS e
+LEFT JOIN AggregateList AS p ON e.[{SelectedTable.ToLower()}_Id_1] = p.a;
+";
+            
+            var result2 = _sqlConnector.GetList(query2);
+            joinTableDict.Add(joinTableColDescriptor.ColumnName, result2);
+        }
+        
         var selectedColumns = string.Join(", ", _entityTableSpec.Select(x => $"[{x.ColumnName}]"));
         IEnumerable<ColDescriptor> foreignTableSpec = new List<ColDescriptor>();
 
@@ -588,6 +628,11 @@ ORDER BY
                             // ignored
                         }
                     }
+                    else if (colDescriptor is { IsMultiSelect: true, ColumnValueType: ValueTypes.RELATION })
+                    {
+                        var result2 = joinTableDict[colDescriptor.ColumnName] as List<Dictionary<string, object>>;
+                        resultDict.Add(colDescriptor, result2.First(x => x[$"{SelectedTable.ToLower()}_Id_1"] as Guid? == resultRow[$"{SelectedTable.ToLower()}_Id_1"] as Guid?)[colDescriptor.ColumnName] );
+                    }
                     else
                     {
                         resultDict.Add(colDescriptor, resultRow[colDescriptor.ColumnName]);
@@ -617,90 +662,6 @@ ORDER BY
 
         return rows;
     }
-
-
-    // public void AddColumn(string columnName, ValueTypes columnValueType, string? referenceTable = null, string? referenceColumn = null, bool? isMultiSelect =false)
-    // {
-    //     var tableName = SelectedTable.ToLower();
-    //     var datatype = columnValueType switch
-    //     {
-    //         ValueTypes.NUMBER => "int",
-    //         ValueTypes.STRING => "nvarchar(100)",
-    //         ValueTypes.DATE => "datetime2(7)",
-    //         ValueTypes.BOOLEAN => "bit",
-    //         ValueTypes.GUID => "uniqueidentifier",
-    //         ValueTypes.EMAIL => "nvarchar(100)",
-    //         ValueTypes.PHONE => "nvarchar(100)",
-    //         ValueTypes.URL => "nvarchar(100)",
-    //         ValueTypes.PASSWORD => "nvarchar(100)",
-    //         ValueTypes.CURRENCY => "decimal(18,2)",
-    //         ValueTypes.PERCENTAGE => "decimal(18,2)",
-    //         ValueTypes.DATETIME => "datetime2(7)",
-    //         ValueTypes.TIME => "time(7)",
-    //         ValueTypes.RELATION => "uniqueidentifier",
-    //         _ => throw new ArgumentOutOfRangeException(nameof(columnValueType), columnValueType, null)
-    //     };
-    //
-    //     using var connection = _sqlConnector.SqlConnection;
-    //     connection.Open();
-    //
-    //     SqlCommand command = connection.CreateCommand();
-    //     SqlTransaction transaction;
-    //
-    //     // Start a local transaction.
-    //     transaction = connection.BeginTransaction();
-    //
-    //     // Must assign both transaction object and connection
-    //     // to Command object for a pending local transaction
-    //     command.Connection = connection;
-    //     command.Transaction = transaction;
-    //
-    //     var counter = 1;
-    //     if (_entityTableSpec.Any(x => x.ColumnName.StartsWith($"{tableName}_{columnName}")))
-    //     {
-    //         var highest = _entityTableSpec
-    //             .Where(x => x.ColumnName.StartsWith($"{tableName}_{columnName}"))
-    //             .Select(x => Int32.Parse(x.ColumnName.Split('_')[2])).MaxBy(x => x);
-    //         counter = highest + 1;
-    //     }
-    //
-    //     var internalColumnName = $"{tableName}_{columnName}_{counter}";
-    //
-    //     var insertQuery = $"ALTER TABLE [dbo].[{tableName}] ADD [{internalColumnName}] {datatype};";
-    //
-    //     if (columnValueType == ValueTypes.RELATION)
-    //     {
-    //         if (referenceColumn is null || referenceTable is null)
-    //             throw new ArgumentNullException(nameof(referenceColumn), "Reference column and table must be specified");
-    //         insertQuery += $"ALTER TABLE [dbo].[{tableName}] ADD CONSTRAINT [FK_{tableName}_{referenceTable}] FOREIGN KEY ([{internalColumnName}]) REFERENCES [dbo].[{referenceTable}] ([{referenceColumn}]);";
-    //     }
-    //
-    //     var specQuery = $"INSERT INTO [dbo].[{tableName}Spec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ValueEditable, ColumnEditable, ColumnVisible, IsMultiSelect) VALUES (@internalColumnName, @columnName, @columnValueType, 1, 1, 1, 1, @isMultiSelect);";
-    //     try
-    //     {
-    //         command.CommandText = insertQuery;
-    //         command.ExecuteNonQuery();
-    //
-    //         command.CommandText = specQuery;
-    //         command.Parameters.AddWithValue("internalColumnName", internalColumnName);
-    //         command.Parameters.AddWithValue("columnName", columnName);
-    //         command.Parameters.AddWithValue("columnValueType", columnValueType);
-    //         command.Parameters.AddWithValue("isMultiSelect", isMultiSelect);
-    //         command.ExecuteNonQuery();
-    //
-    //         transaction.Commit();
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         Console.WriteLine(ex);
-    //         transaction.Rollback();
-    //     }
-    //     finally
-    //     {
-    //         connection.Close();
-    //         _entityTableSpec = GetEntityTableSpec();
-    //     }
-    // }
 
     public IEnumerable<ColDescriptor> GetTableSpec(string tableName = "")
     {
@@ -998,6 +959,12 @@ ORDER BY
             command.CommandText = query;
             foreach (var kvp in row.Where(x => x.Key.ColumnName != $"{tableName}_Id_1" && x.Key is not { ColumnValueType: ValueTypes.RELATION, IsMultiSelect: true }))
             {
+                if (kvp.Key.IsMultiSelect)
+                {
+                    var xmlElements = new XElement("Values", ((string[])kvp.Value).Select(x => new XElement("Value", x)));
+                    command.Parameters.AddWithValue(kvp.Key.ColumnName.Replace(' ', '_'), xmlElements.ToString());
+                    continue;
+                }
                 command.Parameters.AddWithValue(kvp.Key.ColumnName.Replace(' ', '_'), kvp.Value);
             }
 
@@ -1007,13 +974,14 @@ ORDER BY
 
             foreach (var kvp in row.Where(x => x.Key is { ColumnValueType: ValueTypes.RELATION, IsMultiSelect: true }))
             {
-                var (joinTableName, el1, el2) = GetJoinTableName(kvp.Key.ColumnName);
+                var (joinTableName, el1, el2, _) = GetJoinTableName(kvp.Key.ColumnName);
                 joinTableQuery += $@"
-INSERT INTO [dbo].[{joinTableName}] ({el1}, {el2}) VALUES
+INSERT INTO [dbo].[{joinTableName}] ([{el1}], [{el2}]) VALUES
 ";
                 var valuesList = (string[])kvp.Value;
                 foreach (var value in valuesList)
                 {
+                    if (value == default) continue;
                     joinTableQuery += $"('{insertedId}', '{value}'),";
                 }
 
@@ -1081,15 +1049,15 @@ INSERT INTO [dbo].[{joinTableName}] ({el1}, {el2}) VALUES
         if (newTable.HasHistoryTable)
         {
             query = $@"
-CREATE TABLE dbo.{newTable.TableName} (
+CREATE TABLE dbo.[{newTable.TableName}] (
     [{newTable.TableName.ToLower()}_Id_1] UniqueIdentifier DEFAULT NEWID() NOT NULL PRIMARY KEY ,
     [ValidFrom] DATETIME2 GENERATED ALWAYS AS ROW START,
     [ValidTo] DATETIME2 GENERATED ALWAYS AS ROW END,
     PERIOD FOR SYSTEM_TIME(ValidFrom, ValidTo)
 )
-WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.{newTable.TableName}History));
+WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.[{newTable.TableName}History]));
 
-CREATE TABLE dbo.{newTable.TableName}Spec (
+CREATE TABLE dbo.[{newTable.TableName}Spec] (
     [Id] UniqueIdentifier DEFAULT NEWID() NOT NULL PRIMARY KEY ,
     [ColumnName] NVARCHAR(100) NOT NULL,
     [ColumnDisplayName] NVARCHAR(100) NOT NULL,
@@ -1105,19 +1073,19 @@ CREATE TABLE dbo.{newTable.TableName}Spec (
     [ValidTo] DATETIME2 GENERATED ALWAYS AS ROW END,
     PERIOD FOR SYSTEM_TIME(ValidFrom, ValidTo)
 )
-WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.{newTable.TableName}SpecHistory));
+WITH (SYSTEM_VERSIONING = ON (HISTORY_TABLE = dbo.[{newTable.TableName}SpecHistory]));
 Insert Into [dbo].[{newTable.TableName}Spec] (ColumnName, ColumnDisplayName, ColumnValueType, ColumnEnabled, ColumnEditable, ValueEditable, ColumnVisible) VALUES ('{newTable.TableName.ToLower()}_Id_1', 'Id', 4, 1, 0, 0, 1)
 ";
         }
         else
         {
             query = $@"
-CREATE TABLE dbo.{newTable.TableName} (
+CREATE TABLE dbo.[{newTable.TableName}] (
     [{newTable.TableName.ToLower()}_Id_1] UniqueIdentifier DEFAULT NEWID() NOT NULL PRIMARY KEY ,
     
 );
 
-CREATE TABLE dbo.{newTable.TableName}Spec (
+CREATE TABLE dbo.[{newTable.TableName}Spec] (
     [Id] UniqueIdentifier DEFAULT NEWID() NOT NULL PRIMARY KEY ,
     [ColumnName] NVARCHAR(100) NOT NULL,
     [ColumnDisplayName] NVARCHAR(100) NOT NULL,
@@ -1274,7 +1242,7 @@ ALTER TABLE dbo.[{SelectedTable.ToLower()}_{newColumn.ReferenceTable.ToLower()}]
         }
     }
 
-    private (string?, string?, string?) GetJoinTableName(string internalColumnName)
+    private (string?, string?, string?, string?) GetJoinTableName(string internalColumnName)
     {
                 var query = $@"
 
@@ -1329,9 +1297,10 @@ ORDER BY
         if (constraintResult is null) throw new Exception();
         
         var tableName = constraintResult.First()["TableName"] as string;
+        var otherTableName = constraintResult.Select(x => x["ReferenceTableName"] as string).First(x => x != SelectedTable);
         string[] columns = constraintResult.Select(x=> x["ColumnName"] as string).ToArray();
         var el1 = columns.First(x => x.Contains($"_{SelectedTable.ToLower()}_"));
         var el2 = columns.First(x => !x.Contains($"_{SelectedTable.ToLower()}_"));
-        return (tableName,el1,el2);
+        return (tableName,el1,el2, otherTableName);
     }
 }
